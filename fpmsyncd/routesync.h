@@ -64,7 +64,11 @@ private:
     /* vnet route table */
     ProducerStateTable  m_vnet_routeTable;
     /* vnet vxlan tunnel table */  
-    ProducerStateTable  m_vnet_tunnelTable; 
+    ProducerStateTable  m_vnet_tunnelTable;
+    /* srv6 local sid table */
+    ProducerStateTable m_srv6LocalSidTable; 
+    /* srv6 sid list table */
+    ProducerStateTable m_srv6SidListTable; 
     struct nl_cache    *m_link_cache;
     struct nl_sock     *m_nl_sock;
 #ifdef HAVE_NEXTHOP_GROUP
@@ -81,6 +85,17 @@ private:
 
     void parseEncap(struct rtattr *tb, uint32_t &encap_value, string &rmac);
 
+    void parseEncapSrv6SteerRoute(struct rtattr *tb, string &vpn_sid, string &src_addr);
+
+    bool parseSrv6LocalSid(struct rtattr *tb[], string &block_len,
+                           string &node_len, string &func_len,
+                           string &arg_len, string &action, string &vrf,
+                           string &adj);
+
+    bool parseSrv6LocalSidFormat(struct rtattr *tb, string &block_len,
+                                 string &node_len, string &func_len,
+                                 string &arg_len);
+
     void parseRtAttrNested(struct rtattr **tb, int max,
                  struct rtattr *rta);
 
@@ -89,6 +104,12 @@ private:
 
     /* Handle prefix route */
     void onEvpnRouteMsg(struct nlmsghdr *h, int len);
+
+    /* Handle routes containing an SRv6 nexthop */
+    void onSrv6SteerRouteMsg(struct nlmsghdr *h, int len);
+
+    /* Handle SRv6 Local SID */
+    void onSrv6LocalSidMsg(struct nlmsghdr *h, int len);
 
     /* Handle vnet route */
     void onVnetRouteMsg(int nlmsg_type, struct nl_object *obj, string vnet);
@@ -107,6 +128,9 @@ private:
     bool getEvpnNextHop(struct nlmsghdr *h, int received_bytes, struct rtattr *tb[],
                         string& nexthops, string& vni_list, string& mac_list,
                         string& intf_list);
+
+    bool getSrv6SteerRouteNextHop(struct nlmsghdr *h, int received_bytes,
+                        struct rtattr *tb[], string &vpn_sid, string &src_addr);
 
     /* Get next hop list */
     void getNextHopList(struct rtnl_route *route_obj, string& gw_list,
@@ -131,6 +155,10 @@ private:
     void updateNextHopGroupDb(const NextHopGroup& nhg);
     void getNextHopGroupFields(const NextHopGroup& nhg, string& nexthops, string& ifnames, string& weights, uint8_t af = AF_INET);
 #endif
+    /* Get encap type */
+    uint16_t getEncapType(struct nlmsghdr *h);
+
+    const char *localSidAction2Str(uint32_t action);
 };
 
 }

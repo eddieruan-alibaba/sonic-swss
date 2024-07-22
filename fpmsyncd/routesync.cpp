@@ -184,7 +184,7 @@ static decltype(auto) makeNlAddr(const T& ip)
 
 #define APP_PIC_CONTEXT_TABLE_NAME          "PIC_CONTEXT_TABLE"
 RouteSync::RouteSync(RedisPipeline *pipeline) :
-    m_routeTable(pipeline, APP_ROUTE_TABLE_NAME, true),
+    m_routeTable(pipeline, APP_ROUTE_TABLE_NAME, true, true),
 #ifdef HAVE_NEXTHOP_GROUP
     m_nexthop_groupTable(pipeline, APP_NEXTHOP_GROUP_TABLE_NAME, true),
     m_pic_context_groupTable(pipeline, APP_PIC_CONTEXT_TABLE_NAME, true),

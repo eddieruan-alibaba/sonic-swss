@@ -82,21 +82,7 @@ public:
         m_fabricQueueStatEnabled = enabled;
     }
     void logRotate();
-
-    // Two required API to support ring buffer feature
-    /**
-     * This method is used by a ring buffer consumer [Orchdaemon] to initialzie its ring,
-     * and populate this ring's pointer to the producers [Orch, Consumer], to make sure that
-     * they are connected to the same ring.
-     */
-    void enableRingBuffer();
-    /**
-     * This method describes how the ring consumer consumes this ring.
-     */
-    void popRingBuffer();
-
 private:
-    std::thread ring_thread;
     DBConnector *m_applDb;
     DBConnector *m_configDb;
     DBConnector *m_stateDb;
@@ -109,7 +95,7 @@ private:
 
     std::vector<Orch *> m_orchList;
     Select *m_select;
-
+    
     std::chrono::time_point<std::chrono::high_resolution_clock> m_lastHeartBeat;
 
     void flush();
@@ -117,11 +103,6 @@ private:
     void heartBeat(std::chrono::time_point<std::chrono::high_resolution_clock> tcurrent);
 
     void freezeAndHeartBeat(unsigned int duration);
-
-protected:
-    /* Orchdaemon instance points to the same ring buffer during its lifetime */
-    OrchRing* gRingBuffer = nullptr;
-    std::atomic<bool> ring_thread_exited{false};
 };
 
 class FabricOrchDaemon : public OrchDaemon

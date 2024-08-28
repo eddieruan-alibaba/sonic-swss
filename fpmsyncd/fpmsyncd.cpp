@@ -4,28 +4,13 @@
 #include "select.h"
 #include "selectabletimer.h"
 #include "netdispatcher.h"
-#include "netlink.h"
-#include "notificationconsumer.h"
-#include "subscriberstatetable.h"
-#include "performancetimer.h"
 #include "warmRestartHelper.h"
 #include "fpmsyncd/fpmlink.h"
 #include "fpmsyncd/routesync.h"
 
+
 using namespace std;
 using namespace swss;
-
-// SELECT_TIMEOUT specifies the maximum wait time in milliseconds (-1 == infinite)
-static int SELECT_TIMEOUT;
-#define INFINITE -1
-#define FLUSH_TIMEOUT 500  // 500 milliseconds
-static int gFlushTimeout = FLUSH_TIMEOUT;
-// redispipeline has a maximum capacity of 50000 entries
-#define ROUTE_SYNC_PPL_SIZE 50000
-// consider the traffic is small if pipeline contains < 500 entries
-#define SMALL_TRAFFIC 500
-#define PRINT_ALL 1
-#define VERBOSE true
 
 /*
  * Default warm-restart timer interval for routing-stack app. To be used only if
@@ -59,47 +44,12 @@ static bool eoiuFlagsSet(Table &bgpStateTable)
     return true;
 }
 
-/**
- * @brief fpmsyncd invokes redispipeline's flush with a timer
- * 
- * redispipeline would automatically flush itself when full,
- * but fpmsyncd can invoke pipeline's flush even if it's not full yet.
- * 
- * By setting SELECT_TIMEOUT, fpmsyncd controls the flush interval.
- * 
- * @param pipeline reference to the pipeline to be flushed
- * @param scheduled if true, timer for fpmsyncd flush expired
- */
-void flushPipeline(RedisPipeline& pipeline, bool scheduled) {
-    size_t remaining = pipeline.size();
-    if (remaining == 0) {
-        SELECT_TIMEOUT = INFINITE;
-        return;
-    }
-    static swss::PerformanceTimer timer("FPMFLUSH", PRINT_ALL, VERBOSE);
-    int idle = pipeline.getIdleTime();
-    // flush right away
-    if (remaining < SMALL_TRAFFIC || idle >= gFlushTimeout || idle <= 0) {
-        timer.start();
-        pipeline.flush();
-        timer.stop();
-        
-        timer.inc(remaining);
-        SELECT_TIMEOUT = INFINITE;
-        SWSS_LOG_DEBUG("Pipeline flushed");
-    
-        return;
-    }
-    // postpone the flush
-    SELECT_TIMEOUT = gFlushTimeout - idle;
-}
-
 int main(int argc, char **argv)
 {
     swss::Logger::linkToDbNative("fpmsyncd");
     DBConnector db("APPL_DB", 0);
     RedisPipeline pipeline(&db);
-    RouteSync sync(&pipeline, ROUTE_SYNC_PPL_SIZE);
+    RouteSync sync(&pipeline);
 
     DBConnector stateDb("STATE_DB", 0);
     Table bgpStateTable(&stateDb, STATE_BGP_TABLE_NAME);
@@ -165,14 +115,12 @@ int main(int argc, char **argv)
                 sync.m_warmStartHelper.setState(WarmStart::WSDISABLED);
             }
 
-            SELECT_TIMEOUT = INFINITE;
-
             while (true)
             {
                 Selectable *temps;
 
                 /* Reading FPM messages forever (and calling "readMe" to read them) */
-                auto ret = s.select(&temps, SELECT_TIMEOUT);
+                s.select(&temps);
 
                 /*
                  * Upon expiration of the warm-restart timer or eoiu Hold Timer, proceed to run the
@@ -236,7 +184,8 @@ int main(int argc, char **argv)
                 }
                 else if (!warmStartEnabled || sync.m_warmStartHelper.isReconciled())
                 {
-                    flushPipeline(pipeline, ret==Select::TIMEOUT);
+                    pipeline.flush();
+                    SWSS_LOG_DEBUG("Pipeline flushed");
                 }
             }
         }

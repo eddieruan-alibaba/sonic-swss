@@ -62,7 +62,7 @@ void SwitchOrch::set_switch_pfc_dlr_init_capability()
         m_PfcDlrInitEnable = false;
         fvVector.emplace_back(SWITCH_CAPABILITY_TABLE_PFC_DLR_INIT_CAPABLE, "false");
     }
-    else 
+    else
     {
         SWSS_LOG_INFO("Queue level PFC DLR INIT configuration is supported");
         m_PfcDlrInitEnable = true;
@@ -75,7 +75,7 @@ SwitchOrch::SwitchOrch(DBConnector *db, vector<TableConnector>& connectors, Tabl
         Orch(connectors),
         m_switchTable(switchTable.first, switchTable.second),
         m_db(db),
-        m_stateDb(new DBConnector(STATE_DB, DBConnector::DEFAULT_UNIXSOCKET, 0)),
+        m_stateDb(new DBConnector("STATE_DB", 0)),
         m_asicSensorsTable(new Table(m_stateDb.get(), ASIC_TEMPERATURE_INFO_TABLE_NAME)),
         m_sensorsPollerTimer (new SelectableTimer((timespec { .tv_sec = DEFAULT_ASIC_SENSORS_POLLER_INTERVAL, .tv_nsec = 0 })))
 {
@@ -1118,13 +1118,13 @@ bool SwitchOrch::querySwitchCapability(sai_object_type_t sai_object, sai_attr_id
         SWSS_LOG_WARN("Could not query switch level DSCP to TC map %d", status);
         return false;
     }
-    else 
+    else
     {
         if (capability.set_implemented)
         {
             return true;
         }
-        else 
+        else
         {
             return false;
         }

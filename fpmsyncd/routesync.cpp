@@ -283,7 +283,6 @@ bool RouteSync::parseEncapSrv6VpnRoute(struct rtattr *tb, uint32_t &pic_id,
     return true;
 }
 
-const char *RouteSync::localSidAction2Str(uint32_t action)
 {
     switch (action)
     {

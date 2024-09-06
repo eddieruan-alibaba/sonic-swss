@@ -218,9 +218,7 @@ private:
     void updatePicContextGroupDb(const NextHopGroup& nhg);
     void getNextHopGroupFields(const NextHopGroup& nhg, string& nexthops, string& ifnames, string& weights, uint8_t af = AF_INET);
     void getPicContextGroupFields(const NextHopGroup& nhg, struct NextHopField& nhField, uint8_t af = AF_INET);
-    /* Get encap type */
-    uint16_t getEncapType(struct nlmsghdr *h);
-    const char *localSidAction2Str(uint32_t action);
+
 };
 struct NextHopField {
     string nexthops;

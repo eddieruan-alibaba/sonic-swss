@@ -94,7 +94,7 @@ RouteOrch::RouteOrch(DBConnector *db, vector<table_name_with_pri_t> &tableNames,
     /* fetch the MAX_ECMP_MEMBER_COUNT and for voq platform, set it to 128 */
     attr.id = SAI_SWITCH_ATTR_MAX_ECMP_MEMBER_COUNT;
     status = sai_switch_api->get_switch_attribute(gSwitchId, 1, &attr);
-    
+
     if (status != SAI_STATUS_SUCCESS)
     {
         SWSS_LOG_WARN("Failed to get switch attribute max ECMP Group size. rv:%d", status);
@@ -115,7 +115,7 @@ RouteOrch::RouteOrch(DBConnector *db, vector<table_name_with_pri_t> &tableNames,
             {
                 SWSS_LOG_ERROR("Failed to set switch attribute ECMP member count to 128. rv:%d", status);
             }
-            else 
+            else
             {
                 SWSS_LOG_NOTICE("Set switch attribute ECMP member count to 128");
             }
@@ -641,39 +641,39 @@ void RouteOrch::doTask(Consumer& consumer)
 
                 for (auto i : kfvFieldsValues(t))
                 {
-                    if (fvField(i) == "nexthop")
+                    if (fvField(i) == "nexthop" && fvValue(i) != "" && fvValue(i) != "na")
                         ips = fvValue(i);
 
-                    if (fvField(i) == "ifname")
+                    if (fvField(i) == "ifname" && fvValue(i) != "" && fvValue(i) != "na")
                         aliases = fvValue(i);
 
-                    if (fvField(i) == "mpls_nh")
+                    if (fvField(i) == "mpls_nh" && fvValue(i) != "" && fvValue(i) != "na")
                         mpls_nhs = fvValue(i);
 
-                    if (fvField(i) == "vni_label") {
+                    if (fvField(i) == "vni_label" && fvValue(i) != "" && fvValue(i) != "na") {
                         vni_labels = fvValue(i);
                         overlay_nh = true;
                     }
 
-                    if (fvField(i) == "router_mac")
+                    if (fvField(i) == "router_mac" && fvValue(i) != "" && fvValue(i) != "na")
                         remote_macs = fvValue(i);
 
-                    if (fvField(i) == "blackhole")
+                    if (fvField(i) == "blackhole" && fvValue(i) != "" && fvValue(i) != "na")
                         blackhole = fvValue(i) == "true";
 
-                    if (fvField(i) == "weight")
+                    if (fvField(i) == "weight" && fvValue(i) != "" && fvValue(i) != "na")
                         weights = fvValue(i);
 
-                    if (fvField(i) == "nexthop_group")
+                    if (fvField(i) == "nexthop_group" && fvValue(i) != "" && fvValue(i) != "na")
                         nhg_index = fvValue(i);
 
-                    if (fvField(i) == "segment") {
+                    if (fvField(i) == "segment" && fvValue(i) != "" && fvValue(i) != "na") {
                         srv6_segments = fvValue(i);
                         srv6_seg = true;
                         srv6_nh = true;
                     }
 
-                    if (fvField(i) == "seg_src") {
+                    if (fvField(i) == "seg_src" && fvValue(i) != "" && fvValue(i) != "na") {
                         srv6_source = fvValue(i);
                         srv6_nh = true;
                     }
@@ -683,13 +683,12 @@ void RouteOrch::doTask(Consumer& consumer)
                         ctx.protocol = fvValue(i);
                     }
 
-                    if (fvField(i) == "vpn_sid") {
+                    if (fvField(i) == "vpn_sid" && fvValue(i) != "" && fvValue(i) != "na") {
                         srv6_vpn_sids = fvValue(i);
                         srv6_nh = true;
                         srv6_vpn = true;
                     }
-
-                    if (fvField(i) == "pic_context_id")
+                    if (fvField(i) == "pic_context_id" && fvValue(i) != "" && fvValue(i) != "na")
                     {
                         context_index = fvValue(i);
                         srv6_vpn = true;
@@ -724,6 +723,7 @@ void RouteOrch::doTask(Consumer& consumer)
                 vector<string> srv6_segv;
                 vector<string> srv6_src;
                 vector<string> srv6_vpn_sidv;
+
                 bool l3Vni = true;
                 uint32_t vni = 0;
 
@@ -824,6 +824,7 @@ void RouteOrch::doTask(Consumer& consumer)
                     }
                     else if (srv6_nh == true)
                     {
+
                         if (srv6_vpn && (srv6_vpn_sidv.size() != srv6_src.size()))
                         {
                             SWSS_LOG_ERROR("inconsistent number of endpoints and srv6 vpn sids.");
@@ -1033,7 +1034,7 @@ void RouteOrch::doTask(Consumer& consumer)
             route_entry.vr_id = vrf_id;
             route_entry.switch_id = gSwitchId;
             copy(route_entry.destination, ip_prefix);
-            
+
             if (op == SET_COMMAND)
             {
                 const bool& excp_intfs_flag = ctx.excp_intfs_flag;
@@ -2627,7 +2628,7 @@ bool RouteOrch::removeRoutePost(const RouteBulkContext& ctx)
         {
             m_bulkSrv6NhgReducedVec.emplace_back(ol_nextHops);
         }
-        
+
         MuxOrch* mux_orch = gDirectory.get<MuxOrch*>();
         if (it_route->second.nhg_key.getSize() > 1)
         {

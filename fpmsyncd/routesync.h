@@ -177,6 +177,7 @@ private:
     void updateNextHopGroup(uint32_t nh_id);
     void deleteNextHopGroup(uint32_t nh_id);
     void deletePicContextGroup(uint32_t nh_id);
+    void updatePicContextGroup(uint32_t nh_id);
     void updateNextHopGroupDb(const NextHopGroup& nhg);
     void updatePicContextGroupDb(const NextHopGroup& nhg);
     void getNextHopGroupFields(const NextHopGroup& nhg, string& nexthops, string& ifnames, string& weights, uint8_t af = AF_INET);

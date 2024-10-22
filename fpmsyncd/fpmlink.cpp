@@ -297,6 +297,10 @@ void FpmLink::processFpmMessage(fpm_msg_hdr_t* hdr)
             processRawMsg(nl_hdr);
         }
 #endif
+        else if (nl_hdr->nlmsg_type == RTM_NEWSRV6SIDLIST || nl_hdr->nlmsg_type == RTM_DELSRV6SIDLIST)
+        {
+            processRawMsg(nl_hdr);
+        }
         else
         {
             NetDispatcher::getInstance().onNetlinkMessage(msg);

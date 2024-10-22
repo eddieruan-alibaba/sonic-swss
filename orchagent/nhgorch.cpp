@@ -60,26 +60,46 @@ void NhgOrch::doTask(Consumer& consumer)
             string aliases;
             string weights;
             string mpls_nhs;
+            string vni_labels;
+            string remote_macs;
+            string srv6_segments;
             string srv6_source;
             bool overlay_nh = false;
+            bool srv6_seg = false;
             bool srv6_nh = false;
 
             /* Get group's next hop IPs and aliases */
             for (auto i : kfvFieldsValues(t))
             {
-                if (fvField(i) == "nexthop")
+                if (fvField(i) == "nexthop" && fvValue(i) != "" && fvValue(i).find("na") == string::npos)
                     ips = fvValue(i);
 
-                if (fvField(i) == "ifname")
+                if (fvField(i) == "ifname" && fvValue(i) != "" && fvValue(i).find("na") == string::npos)
                     aliases = fvValue(i);
 
-                if (fvField(i) == "weight")
+                if (fvField(i) == "weight" && fvValue(i) != "" && fvValue(i).find("na") == string::npos)
                     weights = fvValue(i);
 
-                if (fvField(i) == "mpls_nh")
+                if (fvField(i) == "mpls_nh" && fvValue(i) != "" && fvValue(i).find("na") == string::npos)
                     mpls_nhs = fvValue(i);
 
-                if (fvField(i) == "seg_src")
+                if (fvField(i) == "vni_label" && fvValue(i) != "" && fvValue(i).find("na") == string::npos)
+                {
+                    vni_labels = fvValue(i);
+                    overlay_nh = true;
+                }
+
+                if (fvField(i) == "router_mac" && fvValue(i) != "" && fvValue(i).find("na") == string::npos)
+                    remote_macs = fvValue(i);
+
+                if (fvField(i) == "segment" && fvValue(i) != "" && fvValue(i).find("na") == string::npos)
+                {
+                    srv6_segments = fvValue(i);
+                    srv6_seg = true;
+                    srv6_nh = true;
+                }
+
+                if (fvField(i) == "seg_src" && fvValue(i) != "" && fvValue(i).find("na") == string::npos)
                 {
                     srv6_source = fvValue(i);
                     srv6_nh = true;
@@ -90,6 +110,9 @@ void NhgOrch::doTask(Consumer& consumer)
             vector<string> ipv = tokenize(ips, ',');
             vector<string> alsv = tokenize(aliases, ',');
             vector<string> mpls_nhv = tokenize(mpls_nhs, ',');
+            vector<string> vni_labelv = tokenize(vni_labels, ',');
+            vector<string> rmacv = tokenize(remote_macs, ',');
+            vector<string> srv6_segv = tokenize(srv6_segments, ',');
             vector<string> srv6_srcv = tokenize(srv6_source, ',');
 
             /* Create the next hop group key. */
@@ -104,17 +127,23 @@ void NhgOrch::doTask(Consumer& consumer)
                     it = consumer.m_toSync.erase(it);
                     continue;
                 }
+                if (srv6_seg && srv6_segv.size() != srv6_srcv.size())
+                {
+                    SWSS_LOG_ERROR("inconsistent number of srv6_segv and srv6_srcs.");
+                    it = consumer.m_toSync.erase(it);
+                    continue;
+                }
                 for (uint32_t i = 0; i < ipv.size(); i++)
                 {
                     if (i) nhg_str += NHG_DELIMITER;
                     nhg_str += ipv[i] + NH_DELIMITER;      // ip address
                     nhg_str += NH_DELIMITER;                // srv6 vpn sid
                     nhg_str += srv6_srcv[i] + NH_DELIMITER; // srv6 source
-                    nhg_str += NH_DELIMITER;     // srv6 segment
+                    nhg_str += (srv6_seg ? srv6_segv[i] : "") + NH_DELIMITER;     // srv6 segment
                 }
                 nhg_key = NextHopGroupKey(nhg_str, overlay_nh, srv6_nh, weights);
             }
-            else
+            else if (!overlay_nh)
             {
                 for (uint32_t i = 0; i < ipv.size(); i++)
                 {
@@ -126,6 +155,15 @@ void NhgOrch::doTask(Consumer& consumer)
                     nhg_str += ipv[i] + NH_DELIMITER + alsv[i];
                 }
                 nhg_key = NextHopGroupKey(nhg_str, weights);
+            }
+            else
+            {
+                for (uint32_t i = 0; i < ipv.size(); ++i)
+                {
+                    if (i) nhg_str += NHG_DELIMITER;
+                    nhg_str += ipv[i] + NH_DELIMITER + "vni" + alsv[i] + NH_DELIMITER + vni_labelv[i] + NH_DELIMITER + rmacv[i];
+                }
+                nhg_key = NextHopGroupKey(nhg_str, overlay_nh, srv6_nh, weights);
             }
             
 

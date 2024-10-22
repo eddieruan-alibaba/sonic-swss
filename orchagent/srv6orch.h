@@ -44,6 +44,7 @@ struct MySidEntry
     sai_my_sid_entry_endpoint_behavior_t endBehavior;
     string            endVrfString; // Used for END.T, END.DT4, END.DT6 and END.DT46,
     string            endAdjString; // Used for END.X, END.DX4, END.DX6
+    string            endIfnameString;
 };
 
 struct Srv6TunnelMapEntryKey
@@ -115,6 +116,8 @@ typedef set<uint32_t> Srv6PrefixAggIdSet;
 typedef map<Srv6TunnelMapEntryKey, Srv6TunnelMapEntryEntry> Srv6TunnelMapEntryTable;
 typedef map<string, Srv6PicContextInfo> Srv6PicContextTable;
 
+#define APP_PIC_CONTEXT_TABLE_NAME          "PIC_CONTEXT_TABLE"
+
 #define SID_LIST_DELIMITER ','
 #define MY_SID_KEY_DELIMITER ':'
 class Srv6Orch : public Orch, public Observer
@@ -163,7 +166,7 @@ class Srv6Orch : public Orch, public Observer
         bool createSrv6Nexthop(const NextHopKey &nh);
         bool deleteSrv6Nexthop(const NextHopKey &nh);
         bool srv6NexthopExists(const NextHopKey &nh);
-        bool createUpdateMysidEntry(string my_sid_string, const string vrf, const string adj, const string end_action);
+        bool createUpdateMysidEntry(string my_sid_string, const string vrf, const string adj, const string end_action, const string ifname);
         bool deleteMysidEntry(const string my_sid_string);
         bool sidEntryEndpointBehavior(const string action, sai_my_sid_entry_endpoint_behavior_t &end_behavior,
                                       sai_my_sid_entry_endpoint_behavior_flavor_t &end_flavor);
@@ -211,7 +214,7 @@ class Srv6Orch : public Orch, public Observer
          *    Value: a set of SID entries that are waiting for the nexthop to be ready
          *           each SID entry is encoded as a tuple <My SID key, VRF name, Adjacency, SRv6 Behavior>
          */
-        map<NextHopKey, set<tuple<string, string, string, string>>> m_pendingSRv6MySIDEntries;
+        map<NextHopKey, set<tuple<string, string, string, string, string>>> m_pendingSRv6MySIDEntries;
 };
 
 #endif // SWSS_SRV6ORCH_H

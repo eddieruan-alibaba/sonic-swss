@@ -584,13 +584,13 @@ void RouteOrch::doTask(Consumer& consumer)
 
             if (op == SET_COMMAND)
             {
-                string ips;
-                string aliases;
+                string ips = "";
+                string aliases = "";
                 string mpls_nhs;
                 string vni_labels;
                 string remote_macs;
                 string weights;
-                string nhg_index;
+                string nhg_index = "";
                 string context_index;
                 bool& excp_intfs_flag = ctx.excp_intfs_flag;
                 bool overlay_nh = false;

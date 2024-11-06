@@ -254,35 +254,24 @@ void Consumer::execute()
 
     SWSS_LOG_ENTER();
 
-    size_t total_size = 0;
+    size_t popped_size = 0; // number of entries popped from the redis table
 
-    while (true)
-    {
-        size_t popped_size = 0; // number of entries popped from the redis table
+    if (gRingBuffer && gRingBuffer->Serves(getName())) {
+        timer.start();
+    }
 
-        if (gRingBuffer && gRingBuffer->Serves(getName())) {
-            timer.start();
-        }
+    auto entries = std::make_shared<std::deque<KeyOpFieldsValuesTuple>>();
+    getConsumerTable()->pops(*entries);
 
-        auto entries = std::make_shared<std::deque<KeyOpFieldsValuesTuple>>();
-        getConsumerTable()->pops(*entries);
+    popped_size = entries->size();
 
-        popped_size = entries->size();
-        total_size += popped_size;
+    pushRingBuffer([=](){
+        addToSync(entries);
+    });
 
-        pushRingBuffer([=](){
-            addToSync(entries);
-        });
-
-        if (gRingBuffer && gRingBuffer->Serves(getName())) {
-            timer.stop();
-            timer.inc((int)popped_size);
-        }
-
-        if (!gBatchSize || popped_size * 10 <= (size_t)gBatchSize || total_size >= ROUTE_SYNC_PPL_SIZE) {
-            // some program doesn't initialize gBatchSize and use TableConsumable::DEFAULT_POP_BATCH_SIZE instead
-            break;
-        }
+    if (gRingBuffer && gRingBuffer->Serves(getName())) {
+        timer.stop();
+        timer.inc((int)popped_size);
     }
 
     pushRingBuffer([=](){

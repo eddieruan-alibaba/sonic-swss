@@ -59,7 +59,7 @@ class OrchDaemon
 {
 public:
     OrchDaemon(DBConnector *, DBConnector *, DBConnector *, DBConnector *, ZmqServer *);
-    ~OrchDaemon();
+    virtual ~OrchDaemon();
 
     virtual bool init();
     void start();
@@ -83,6 +83,17 @@ public:
         m_fabricQueueStatEnabled = enabled;
     }
     void logRotate();
+
+    void enableRingBuffer();
+
+    void disableRingBuffer();
+
+    void popRingBuffer();
+
+    std::shared_ptr<RingBuffer> gRingBuffer = nullptr;
+
+    std::thread ring_thread;
+
 private:
     DBConnector *m_applDb;
     DBConnector *m_configDb;

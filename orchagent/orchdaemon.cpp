@@ -88,6 +88,14 @@ OrchDaemon::~OrchDaemon()
 {
     SWSS_LOG_ENTER();
 
+    // clear gRingBuffer before deleting orch pointers
+    if (ring_thread.joinable()) {
+        gRingBuffer->thread_exited = true;
+        gRingBuffer->notify(); // notify ring_thread to exit
+        ring_thread.join(); // block until the thread exits
+        disableRingBuffer();
+    }
+
     /*
      * Some orchagents call other agents in their destructor.
      * To avoid accessing deleted agent, do deletion in reverse order.
@@ -104,6 +112,49 @@ OrchDaemon::~OrchDaemon()
     delete m_select;
 
     events_deinit_publisher(g_events_handle);
+}
+
+// initialize gRingBuffer, pass it to class Executor and class Orch
+void OrchDaemon::enableRingBuffer() {
+    gRingBuffer = std::make_shared<RingBuffer>();
+    Executor::gRingBuffer = gRingBuffer;
+    Orch::gRingBuffer = gRingBuffer;
+    SWSS_LOG_NOTICE("RingBuffer created at %p!", (void *)gRingBuffer.get());
+}
+
+// unset gRingBuffer field for this OrchDaemon instance and class Executor and class Orch
+void OrchDaemon::disableRingBuffer() {
+    gRingBuffer = nullptr;
+    Executor::gRingBuffer = nullptr;
+    Orch::gRingBuffer = nullptr;
+}
+
+// ring_thread executes this function to drain the ring buffer
+void OrchDaemon::popRingBuffer()
+{
+    SWSS_LOG_ENTER();
+
+    if (!gRingBuffer || gRingBuffer->thread_created)
+        return;
+
+    gRingBuffer->thread_created = true;
+
+    SWSS_LOG_NOTICE("OrchDaemon starts the ring thread!");
+
+    while (!gRingBuffer->thread_exited)
+    {
+        gRingBuffer->pauseThread(); // block only if conditions are met
+            
+        gRingBuffer->setIdle(false); // otherwise set idle status as false
+
+        AnyTask func;
+
+        while (gRingBuffer->pop(func)) {
+            func(); // keep popping tasks out of the ring and execute them
+        }
+
+        gRingBuffer->setIdle(true); // set idle status as true
+    }
 }
 
 bool OrchDaemon::init()
@@ -824,6 +875,8 @@ void OrchDaemon::start()
 
     Recorder::Instance().sairedis.setRotate(false);
 
+    ring_thread = std::thread(&OrchDaemon::popRingBuffer, this);
+
     for (Orch *o : m_orchList)
     {
         m_select->addSelectables(o->getSelectables());
@@ -848,6 +901,19 @@ void OrchDaemon::start()
             tstart = std::chrono::high_resolution_clock::now();
 
             flush();
+
+            if (gRingBuffer)
+            {
+                if (!gRingBuffer->IsEmpty())
+                {
+                    gRingBuffer->notify();
+                }
+                else if (gRingBuffer->IsIdle())
+                {
+                    for (Orch *o : m_orchList)
+                        o->doTask();
+                }
+            }
         }
 
         if (ret == Select::ERROR)
@@ -882,8 +948,9 @@ void OrchDaemon::start()
          * execute all the remaining tasks that need to be retried. */
 
         /* TODO: Abstract Orch class to have a specific todo list */
-        for (Orch *o : m_orchList)
-            o->doTask();
+        if (!gRingBuffer || (gRingBuffer->IsEmpty() && gRingBuffer->IsIdle())) // avoid thread conflicts
+            for (Orch *o : m_orchList)
+                o->doTask();
 
         /*
          * Asked to check warm restart readiness.
@@ -897,6 +964,16 @@ void OrchDaemon::start()
             {
                 // Orchagent is ready to perform warm restart, stop processing any new db data.
                 // Should sleep here or continue handling timers and etc.??
+                // need to wait for gRingBuffer to finish tasks that are already there
+                if (gRingBuffer)
+                {
+                    while (!gRingBuffer->IsEmpty() || !gRingBuffer->IsIdle())
+                    {
+                        gRingBuffer->notify();
+                        std::this_thread::sleep_for(std::chrono::milliseconds(SLEEP_MSECONDS));
+                    }
+                }
+
                 if (!gSwitchOrch->checkRestartNoFreeze())
                 {
                     // Disable FDB aging

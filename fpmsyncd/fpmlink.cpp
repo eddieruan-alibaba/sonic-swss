@@ -65,7 +65,7 @@ bool FpmLink::isRawProcessing(struct nlmsghdr *h)
 
     if (h->nlmsg_type == RTM_NEWROUTE || h->nlmsg_type == RTM_DELROUTE)
     {
-        SWSS_LOG_NOTICE("Rx MsgType:%d RTA_NH_ID val %d. NH_ID %d", h->nlmsg_type, RTA_NH_ID, tb[RTA_NH_ID]);
+        SWSS_LOG_NOTICE("Rx MsgType:%d RTA_NH_ID val %d. NH_ID %d", h->nlmsg_type, (int) RTA_NH_ID, (int) tb[RTA_NH_ID]);
     }
 
     if (!tb[RTA_MULTIPATH])

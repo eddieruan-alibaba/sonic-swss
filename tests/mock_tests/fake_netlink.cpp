@@ -8,8 +8,8 @@ static rtnl_link* g_fakeLink = [](){
     return fakeLink;
 }();
 
-extern int rt_build_ret;
-extern bool nlmsg_alloc_ret;
+int rt_build_ret;
+bool nlmsg_alloc_ret;
 extern "C"
 {
 

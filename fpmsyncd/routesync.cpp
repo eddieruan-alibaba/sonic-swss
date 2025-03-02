@@ -1667,7 +1667,7 @@ void RouteSync::onRouteMsg(int nlmsg_type, struct nl_object *obj, char *vrf)
 
     string nhg_id_key;
     uint32_t nhg_id = rtnl_route_get_nh_id(route_obj);
-    SWSS_LOG_INFO("%s size %d, nhgid %d", destipprefix, (int) sizeof(*route), nhg_id);
+
     if(nhg_id)
     {
         const auto itg = m_nh_groups.find(nhg_id);

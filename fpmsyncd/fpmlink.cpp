@@ -63,6 +63,11 @@ bool FpmLink::isRawProcessing(struct nlmsghdr *h)
 
     netlink_parse_rtattr(tb, RTA_MAX, RTM_RTA(rtm), len);
 
+    if (h->nlmsg_type == RTM_NEWROUTE || h->nlmsg_type == RTM_DELROUTE)
+    {
+        SWSS_LOG_NOTICE("Rx MsgType:%d RTA_NH_ID val %d. NH_ID %d", h->nlmsg_type, RTA_NH_ID, tb[RTA_NH_ID]);
+    }
+
     if (!tb[RTA_MULTIPATH])
     {
         if (tb[RTA_ENCAP_TYPE])

@@ -3344,7 +3344,7 @@ void RouteSync::getPicContextGroupFields(const NextHopGroup& nhg, struct NextHop
     else
     {
         int i = 0;
-        for(const auto nh : nhg.group)
+        for(const auto &nh : nhg.group)
         {
             uint32_t id = nh.first;
             auto itr = m_nh_groups.find(id);

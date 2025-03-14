@@ -283,46 +283,6 @@ bool RouteSync::parseEncapSrv6VpnRoute(struct rtattr *tb, uint32_t &pic_id,
     return true;
 }
 
-{
-    switch (action)
-    {
-        case SRV6_LOCALSID_ACTION_UNSPEC:
-            return "unspec";
-        case SRV6_LOCALSID_ACTION_END:
-            return "end";
-        case SRV6_LOCALSID_ACTION_END_X:
-            return "end.x";
-        case SRV6_LOCALSID_ACTION_END_T:
-            return "end.t";
-        case SRV6_LOCALSID_ACTION_END_DX6:
-            return "end.dx6";
-        case SRV6_LOCALSID_ACTION_END_DX4:
-            return "end.dx4";
-        case SRV6_LOCALSID_ACTION_END_DT6:
-            return "end.dt6";
-        case SRV6_LOCALSID_ACTION_END_DT4:
-            return "end.dt4";
-        case SRV6_LOCALSID_ACTION_END_DT46:
-            return "end.dt46";
-        case SRV6_LOCALSID_ACTION_UN:
-            return "un";
-        case SRV6_LOCALSID_ACTION_UA:
-            return "ua";
-        case SRV6_LOCALSID_ACTION_UDX6:
-            return "udx6";
-        case SRV6_LOCALSID_ACTION_UDX4:
-            return "udx4";
-        case SRV6_LOCALSID_ACTION_UDT6:
-            return "udt6";
-        case SRV6_LOCALSID_ACTION_UDT4:
-            return "udt4";
-        case SRV6_LOCALSID_ACTION_UDT46:
-            return "udt46";
-        default:
-            return "unknown";
-    }
-}
-
 /**
  * @parseSrv6MySidFormat() - Parses srv6 MySid format
  * @tb:         Pointer to rtattr to look for nested items in.
@@ -2339,7 +2299,7 @@ void RouteSync::onPicContextMsg(struct nlmsghdr *h, int len)
     string ifname;
     struct nhmsg *nhm = NULL;
     struct rtattr *tb[NHA_MAX + 1] = {};
-    struct nexthop_grp grp[MULTIPATH_NUM];
+    struct nexthop_grp grp[MAX_MULTIPATH_NUM];
     struct in_addr ipv4 = {0};
     struct in6_addr ipv6 = {0};
     char gateway[INET6_ADDRSTRLEN] = {0};
@@ -2381,8 +2341,8 @@ void RouteSync::onPicContextMsg(struct nlmsghdr *h, int len)
             struct nexthop_grp *nha_grp = (struct nexthop_grp *)RTA_DATA(tb[NHA_GROUP]);
             grp_count = (int)(RTA_PAYLOAD(tb[NHA_GROUP]) / sizeof(*nha_grp));
 
-            if(grp_count > MULTIPATH_NUM)
-                grp_count = MULTIPATH_NUM;
+            if(grp_count > MAX_MULTIPATH_NUM)
+                grp_count = MAX_MULTIPATH_NUM;
 
             fvVector.emplace_back("nexthop_count", to_string(grp_count));
             string nhid_list;

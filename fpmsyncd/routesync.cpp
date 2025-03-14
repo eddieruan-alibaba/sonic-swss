@@ -257,6 +257,46 @@ void RouteSync::parseEncapSrv6SteerRoute(struct rtattr *tb, string &vpn_sid,
     return;
 }
 
+const char *RouteSync::mySidAction2Str(uint32_t action)
+{
+    switch (action)
+    {
+        case SRV6_LOCALSID_ACTION_UNSPEC:
+            return "unspec";
+        case SRV6_LOCALSID_ACTION_END:
+            return "end";
+        case SRV6_LOCALSID_ACTION_END_X:
+            return "end.x";
+        case SRV6_LOCALSID_ACTION_END_T:
+            return "end.t";
+        case SRV6_LOCALSID_ACTION_END_DX6:
+            return "end.dx6";
+        case SRV6_LOCALSID_ACTION_END_DX4:
+            return "end.dx4";
+        case SRV6_LOCALSID_ACTION_END_DT6:
+            return "end.dt6";
+        case SRV6_LOCALSID_ACTION_END_DT4:
+            return "end.dt4";
+        case SRV6_LOCALSID_ACTION_END_DT46:
+            return "end.dt46";
+        case SRV6_LOCALSID_ACTION_UN:
+            return "un";
+        case SRV6_LOCALSID_ACTION_UA:
+            return "ua";
+        case SRV6_LOCALSID_ACTION_UDX6:
+            return "udx6";
+        case SRV6_LOCALSID_ACTION_UDX4:
+            return "udx4";
+        case SRV6_LOCALSID_ACTION_UDT6:
+            return "udt6";
+        case SRV6_LOCALSID_ACTION_UDT4:
+            return "udt4";
+        case SRV6_LOCALSID_ACTION_UDT46:
+            return "udt46";
+        default:
+            return "unknown";
+    }
+}
 
 bool RouteSync::parseEncapSrv6VpnRoute(struct rtattr *tb, uint32_t &pic_id,
                                uint32_t &nhg_id)

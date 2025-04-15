@@ -2158,7 +2158,7 @@ void RouteSync::onRouteMsg(int nlmsg_type, struct nl_object *obj, char *vrf)
     }
 }
 
-define MAX_HEX_LINE 8000
+#define MAX_HEX_LINE 8000
 static void swss_hexdump(const char *tag, const void *data, size_t len)
 {
     const unsigned char *p = (const unsigned char *)data;

@@ -2158,6 +2158,43 @@ void RouteSync::onRouteMsg(int nlmsg_type, struct nl_object *obj, char *vrf)
     }
 }
 
+define MAX_HEX_LINE 8000
+static void swss_hexdump(const char *tag, const void *data, size_t len)
+{
+    const unsigned char *p = (const unsigned char *)data;
+    char line[MAX_HEX_LINE];
+    size_t i, j;
+
+    SWSS_LOG_INFO("%s: Hex dump (%zu bytes)", tag, len);
+
+    for (i = 0; i < len; i += 16) {
+        char *ptr = line;
+        ptr += sprintf(ptr, "%04zx: ", i);
+
+        // Hex section
+        for (j = 0; j < 16; j++) {
+            if (i + j < len)
+                ptr += sprintf(ptr, "%02x ", p[i + j]);
+            else
+                ptr += sprintf(ptr, "   ");
+        }
+
+        // Spacer
+        ptr += sprintf(ptr, " |");
+
+        // ASCII section
+        for (j = 0; j < 16; j++) {
+            if (i + j < len) {
+                unsigned char c = p[i + j];
+                ptr += sprintf(ptr, "%c", isprint(c) ? c : '.');
+            }
+        }
+
+        *ptr = '\0';
+        SWSS_LOG_INFO("%s", line);
+    }
+}
+
 /*
  * Handle Nexthop msg
  * @arg nlmsghdr      Netlink message
@@ -2168,6 +2205,7 @@ int RouteSync::parse_encap_seg6(const struct rtattr *tb, struct in6_addr *segs,
     struct rtattr *tb_encap[256] = {};
     struct seg6_iptunnel_encap_pri *ipt = NULL;
     struct in6_addr *segments = NULL;
+    swss_hexdump("parse_encap_seg6: raw tb", tb, RTA_PAYLOAD(tb));
 
     netlink_parse_rtattr_nested(tb_encap, 256, tb);
 

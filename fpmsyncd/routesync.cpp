@@ -2453,7 +2453,9 @@ void RouteSync::onPicContextMsg(struct nlmsghdr *h, int len)
                 {
                     case LWTUNNEL_ENCAP_SEG6:
                         fvVector.emplace_back("nexthop_type", "srv6");
-                        parse_encap_seg6(tb[NHA_ENCAP], &seg6_segs, &seg6_src);
+                        if (!parse_encap_seg6(tb[NHA_ENCAP], &seg6_segs, &seg6_src)) {
+                            SWSS_LOG_ERROR("Failed to parsing %d 's SRV6 encap", id);
+                        }
                         inet_ntop(AF_INET6, &seg6_segs, seg6, INET6_ADDRSTRLEN);
                         inet_ntop(AF_INET6, &seg6_src, seg6_srcs, INET6_ADDRSTRLEN);
                         fvVector.emplace_back("vpn_sid", seg6);

@@ -2198,6 +2198,9 @@ void RouteSync::onNextHopMsg(struct nlmsghdr *h, int len)
     char gateway[INET6_ADDRSTRLEN] = {0};
     char ifname_unknown[IFNAMSIZ] = "unknown";
     vector<FieldValueTuple> fvVector;
+    uint16_t encap_type;
+    char seg6[INET6_ADDRSTRLEN] = {0};
+    char seg6_srcs[INET6_ADDRSTRLEN] = {0};
 
     nhm = (struct nhmsg *)NLMSG_DATA(h);
 
@@ -2290,6 +2293,27 @@ void RouteSync::onNextHopMsg(struct nlmsghdr *h, int len)
                     return;
                 }
                 fvVector.emplace_back("ifname", ifname);
+            }
+            if(tb[NHA_ENCAP] && tb[NHA_ENCAP_TYPE])
+            {
+                struct in6_addr seg6_segs = {0};
+                struct in6_addr seg6_src = {0};
+                encap_type = *((uint16_t *)RTA_DATA(tb[NHA_ENCAP_TYPE]));
+                switch (encap_type)
+                {
+                    case LWTUNNEL_ENCAP_SEG6:
+                        fvVector.emplace_back("nexthop_type", "srv6");
+                        parse_encap_seg6(tb[NHA_ENCAP], &seg6_segs, &seg6_src);
+                        inet_ntop(AF_INET6, &seg6_segs, seg6, INET6_ADDRSTRLEN);
+                        inet_ntop(AF_INET6, &seg6_src, seg6_srcs, INET6_ADDRSTRLEN);
+                        fvVector.emplace_back("seg_src", seg6_srcs);
+
+                        break;
+                    default:
+                        SWSS_LOG_ERROR("unknown encap type: %d id[%d]", encap_type, id);
+                }
+
+                SWSS_LOG_INFO("seg6:%s seg6_srcs:%s", seg6, seg6_srcs);
             }
         }
         if(grp_count)

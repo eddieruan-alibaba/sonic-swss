@@ -12,6 +12,7 @@
 #include <string.h>
 #include <bits/stdc++.h>
 #include <linux/version.h>
+#include "nhgmgr.h"
 
 #include <netlink/route/route.h>
 
@@ -108,6 +109,9 @@ private:
     /* nexthop group table */
     ProducerStateTable  m_nexthop_groupTable;
     map<uint32_t,NextHopGroup> m_nh_groups;
+
+    /* nhgmgr for rib/fib */
+    NHGMgr m_rib_fib_nhg_mgr;
 
     bool                m_isSuppressionEnabled{false};
     FpmInterface*       m_fpmInterface {nullptr};

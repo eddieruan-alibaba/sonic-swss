@@ -1578,7 +1578,7 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
         auto nhg_it = m_nh_groups.find(nhg_id);
         auto pic_it = m_nh_groups.find(pic_id);
 
-        SWSS_LOG_ERROR("vpn route :%s pic id %u nhg id %u, m_nh_groups size %u", routeTableKey, pic_id, nhg_id, m_nh_groups.size());
+        SWSS_LOG_ERROR("vpn route :%s pic id %u nhg id %u, m_nh_groups size %lu", routeTableKey, pic_id, nhg_id, m_nh_groups.size());
         if(nhg_it == m_nh_groups.end() || pic_it == m_nh_groups.end())
         {
              SWSS_LOG_ERROR("Can not find pic or nexthop for vpn route :%s pic id %u nhg id %u", routeTableKey, pic_id, nhg_id);

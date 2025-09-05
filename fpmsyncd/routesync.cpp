@@ -3223,8 +3223,8 @@ void RouteSync::updatePicContextGroupDb(const NextHopGroup& nhg)
     fvVector.push_back(seg_srcs);
     fvVector.push_back(wg);
 
-    SWSS_LOG_ERROR("Update PIC CONTEXT TABLE : %s : %s", key.c_str(),
-                   RedisCommand::serialize(fvVector).c_str());
+    SWSS_LOG_ERROR("Update PIC CONTEXT TABLE : %s : nh %s ifname %s, vpn_sid %s, seg_srcs %s, wg %s", key.c_str(),
+                   nhField.nexthops.c_str(), nhField.ifnames.c_str(), nhField.vpn_sid.c_str(), nhField.seg_srcs.c_str(), nhField.weights.c_str());
 
     //TODO: Take care of warm reboot
     m_pic_context_groupTable.set(key.c_str(), fvVector);

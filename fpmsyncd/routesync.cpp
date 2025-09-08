@@ -2111,7 +2111,7 @@ void RouteSync::onNextHopMsg(struct nlmsghdr *h, int len)
 
     /* We use the ID key'd nhg table for kernel updates */
     id = *((uint32_t *)RTA_DATA(tb[NHA_ID]));
-
+    SWSS_LOG_ERROR("type %d len %d id %d", nlmsg_type, len, id);
     addr_family = nhm->nh_family;
 
     if (nlmsg_type == RTM_NEWNEXTHOP)
@@ -2245,7 +2245,6 @@ void RouteSync::onPicContextMsg(struct nlmsghdr *h, int len)
     uint16_t encap_type;
     vector<FieldValueTuple> fvVector;
 
-    SWSS_LOG_ERROR("type %d len %d", nlmsg_type, len);
     if ((nlmsg_type != RTM_NEWPICCONTEXT)
         && (nlmsg_type != RTM_DELPICCONTEXT))
     {
@@ -2269,7 +2268,7 @@ void RouteSync::onPicContextMsg(struct nlmsghdr *h, int len)
 
     /* We use the ID key'd nhg table for kernel updates */
     id = *((uint32_t *)RTA_DATA(tb[NHA_ID]));
-
+    SWSS_LOG_ERROR("type %d len %d id %d", nlmsg_type, len, id);
     addr_family = nhm->nh_family;
 
     if (nlmsg_type == RTM_NEWPICCONTEXT)

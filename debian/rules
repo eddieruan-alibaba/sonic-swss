@@ -50,4 +50,4 @@ ifeq ($(ENABLE_GCOV), y)
 endif
 
 override_dh_strip:
-	dh_strip --dbg-package=swss-dbg
+

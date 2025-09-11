@@ -94,7 +94,7 @@ RouteOrch::RouteOrch(DBConnector *db, vector<table_name_with_pri_t> &tableNames,
     /* fetch the MAX_ECMP_MEMBER_COUNT and for voq platform, set it to 128 */
     attr.id = SAI_SWITCH_ATTR_MAX_ECMP_MEMBER_COUNT;
     status = sai_switch_api->get_switch_attribute(gSwitchId, 1, &attr);
-    
+
     if (status != SAI_STATUS_SUCCESS)
     {
         SWSS_LOG_WARN("Failed to get switch attribute max ECMP Group size. rv:%d", status);
@@ -115,7 +115,7 @@ RouteOrch::RouteOrch(DBConnector *db, vector<table_name_with_pri_t> &tableNames,
             {
                 SWSS_LOG_ERROR("Failed to set switch attribute ECMP member count to 128. rv:%d", status);
             }
-            else 
+            else
             {
                 SWSS_LOG_NOTICE("Set switch attribute ECMP member count to 128");
             }
@@ -471,7 +471,7 @@ bool RouteOrch::validnexthopinNextHopGroup(const NextHopKey &nexthop, uint32_t& 
         {
            continue;
         }
-        
+
         vector<sai_attribute_t> nhgm_attrs;
         sai_attribute_t nhgm_attr;
 
@@ -549,12 +549,12 @@ bool RouteOrch::invalidnexthopinNextHopGroup(const NextHopKey &nexthop, uint32_t
         }
 
         // Route NHOP Group is already swapped by default route nh memeber . do not delete actual nexthop again.
-   
+
         if (nhopgroup->second.is_default_route_nh_swap)
         {
            continue;
         }
- 
+
 
         nexthop_id = nhopgroup->second.nhopgroup_members[nexthop].next_hop_id;
         status = sai_next_hop_group_api->remove_next_hop_group_member(nexthop_id);
@@ -579,7 +579,7 @@ bool RouteOrch::invalidnexthopinNextHopGroup(const NextHopKey &nexthop, uint32_t
         if (nhopgroup->second.nh_member_install_count == 0 && nhopgroup->second.eligible_for_default_route_nh_swap && !nhopgroup->second.is_default_route_nh_swap)
         {
             if(nexthop.ip_address.isV4())
-            { 
+            {
                 addDefaultRouteNexthopsInNextHopGroup(nhopgroup->second, v4_active_default_route_nhops);
             }
             else
@@ -1140,7 +1140,7 @@ void RouteOrch::doTask(ConsumerBase& consumer)
             route_entry.vr_id = vrf_id;
             route_entry.switch_id = gSwitchId;
             copy(route_entry.destination, ip_prefix);
-            
+
             if (op == SET_COMMAND)
             {
                 const bool& excp_intfs_flag = ctx.excp_intfs_flag;
@@ -1176,7 +1176,7 @@ void RouteOrch::doTask(ConsumerBase& consumer)
                     else
                         it_prev++;
 
-		    // Save the Default Route of Default VRF to be used for 
+		    // Save the Default Route of Default VRF to be used for
 		    // enabling fallback to it as needed
                     if (ip_prefix.isDefaultRoute() && vrf_id == gVirtualRouterId)
                     {
@@ -1664,8 +1664,8 @@ bool RouteOrch::removeNextHopGroup(const NextHopGroupKey &nexthops, const bool i
     auto& nhgm = is_default_route_nh_swap ? next_hop_group_entry->second.default_route_nhopgroup_members : next_hop_group_entry->second.nhopgroup_members;
     for (auto nhop = nhgm.begin(); nhop != nhgm.end();)
     {
-        /* This check we skip for Nexthop Group that has been swapped 
-         * as Nexthop Group Members are not original member which are already removed 
+        /* This check we skip for Nexthop Group that has been swapped
+         * as Nexthop Group Members are not original member which are already removed
          * as part of API invalidnexthopinNextHopGroup */
         if (m_neighOrch->isNextHopFlagSet(nhop->first, NHFLAGS_IFDOWN) && (!is_default_route_nh_swap))
         {
@@ -1769,7 +1769,7 @@ bool RouteOrch::removeNextHopGroup(const NextHopGroupKey &nexthops, const bool i
             m_neighOrch->decreaseNextHopRefCount(nhop->first);
         }
     }
- 
+
     m_syncdNextHopGroups.erase(nexthops);
 
     return true;
@@ -2735,7 +2735,7 @@ bool RouteOrch::removeRoute(RouteBulkContext& ctx)
         }
         SWSS_LOG_INFO("Failed to find route entry, vrf_id 0x%" PRIx64 ", prefix %s\n", vrf_id,
                       ipPrefix.to_string().c_str());
- 
+
         return true;
     }
 
@@ -2874,7 +2874,7 @@ bool RouteOrch::removeRoutePost(const RouteBulkContext& ctx)
         {
             m_bulkSrv6NhgReducedVec.emplace_back(ol_nextHops);
         }
-        
+
         MuxOrch* mux_orch = gDirectory.get<MuxOrch*>();
         if (it_route->second.nhg_key.getSize() > 1)
         {
@@ -3161,9 +3161,9 @@ void RouteOrch::publishRouteState(const RouteBulkContext& ctx, const ReturnCode&
         fvs.emplace_back("protocol", ctx.protocol);
     }
 
-    const bool replace = false;
+    //const bool replace = false;
 
-    m_publisher.publish(APP_ROUTE_TABLE_NAME, ctx.key, fvs, status, replace);
+    //m_publisher.publish(APP_ROUTE_TABLE_NAME, ctx.key, fvs, status, replace);
 }
 
 inline bool RouteOrch::isVipRoute(const IpPrefix &ipPrefix, const NextHopGroupKey &nextHops)

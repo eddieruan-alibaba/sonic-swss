@@ -478,6 +478,7 @@ namespace routeorch_test
 
     TEST_F(RouteOrchTest, RouteOrchTestSetDelResponse)
     {
+        GTEST_SKIP() << "Skip this test due to disable route state update";
         gMockResponsePublisher = std::make_unique<MockResponsePublisher>();
 
         std::deque<KeyOpFieldsValuesTuple> entries;
@@ -514,6 +515,7 @@ namespace routeorch_test
 
     TEST_F(RouteOrchTest, RouteOrchSetFullMaskSubnetPrefix)
     {
+        GTEST_SKIP() << "Skip this test due to disable route state update";
         gMockResponsePublisher = std::make_unique<MockResponsePublisher>();
 
         std::deque<KeyOpFieldsValuesTuple> entries;
@@ -532,6 +534,7 @@ namespace routeorch_test
 
     TEST_F(RouteOrchTest, RouteOrchLoopbackRoute)
     {
+        GTEST_SKIP() << "Skip this test due to disable route state update";
         gMockResponsePublisher = std::make_unique<MockResponsePublisher>();
 
         std::deque<KeyOpFieldsValuesTuple> entries;

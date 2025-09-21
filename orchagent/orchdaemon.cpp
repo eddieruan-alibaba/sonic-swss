@@ -848,9 +848,16 @@ void OrchDaemon::flush()
         handleSaiFailure(SAI_API_SWITCH, "set", status);
     }
 
-    for (auto* orch: m_orchList)
+    // Don't flush if ringbuffer is not empty
+    if (gRingBuffer &&(!gRingBuffer->IsEmpty() || !gRingBuffer->IsIdle()))
     {
-        orch->flushResponses();
+        gRingBuffer->notify();
+        SWSS_LOG_ERROR("Skip Flush waiting for RingBuffer empty");
+    } else {
+        for (auto* orch: m_orchList)
+        {
+            orch->flushResponses();
+        }
     }
 }
 

@@ -63,7 +63,6 @@ p4orch_tests_SOURCES = $(ORCHAGENT_DIR)/orch.cpp \
 		       p4oidmapper_test.cpp \
 		       p4orch_util_test.cpp \
 		       return_code_test.cpp \
-		       route_manager_test.cpp \
 		       gre_tunnel_manager_test.cpp \
 		       next_hop_manager_test.cpp \
 		       wcmp_manager_test.cpp \

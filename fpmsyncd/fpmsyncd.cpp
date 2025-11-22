@@ -13,6 +13,8 @@
 #include "fpmsyncd/routesync.h"
 
 #include <netlink/route/route.h>
+#include <nexthopgroup/nexthopgroupfull.h>
+#include <nexthopgroup/nexthopgroupfull_json.h>
 
 using namespace std;
 using namespace swss;
@@ -27,12 +29,12 @@ static int gFlushTimeout = FLUSH_TIMEOUT;
 
 /**
  * @brief fpmsyncd invokes redispipeline's flush with a timer
- * 
+ *
  * redispipeline would automatically flush itself when full,
  * but fpmsyncd can invoke pipeline's flush even if it's not full yet.
- * 
+ *
  * By setting gSelectTimeout, fpmsyncd controls the flush interval.
- * 
+ *
  * @param pipeline reference to the pipeline to be flushed
  */
 void flushPipeline(RedisPipeline& pipeline);
@@ -120,7 +122,7 @@ int main(int argc, char **argv)
             SelectableTimer eoiuCheckTimer(timespec{0, 0});
             // After eoiu flags are detected, start a hold timer before starting reconciliation.
             SelectableTimer eoiuHoldTimer(timespec{0, 0});
-           
+
             /*
              * Pipeline should be flushed right away to deal with state pending
              * from previous try/catch iterations.

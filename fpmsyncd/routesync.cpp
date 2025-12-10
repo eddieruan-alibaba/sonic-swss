@@ -162,7 +162,7 @@ RouteSync::RouteSync(RedisPipeline *pipeline) :
     m_srv6MySidTable(pipeline, APP_SRV6_MY_SID_TABLE_NAME, true),
     m_srv6SidListTable(pipeline, APP_SRV6_SID_LIST_TABLE_NAME, true),
     m_nl_sock(NULL), m_link_cache(NULL),
-    m_rib_fib_nhg_mgr(pipeline, APP_NEXTHOP_GROUP_TABLE_NAME, true)
+    m_rib_fib_nhg_mgr(pipeline, APP_NEXTHOP_GROUP_TABLE_NAME, APP_PIC_CONTEXT_TABLE_NAME, true)
 
 {
     m_nl_sock = nl_socket_alloc();

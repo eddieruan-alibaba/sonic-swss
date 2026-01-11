@@ -15,6 +15,7 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <linux/nexthop.h>
+#include "fpmsyncd/nhgmgr.h"
 
 using namespace std;
 using namespace swss;
@@ -111,6 +112,10 @@ enum {
     ROUTE_ENCAP_SRV6_UNSPEC            = 0,
     ROUTE_ENCAP_SRV6_VPN_SID           = 1,
     ROUTE_ENCAP_SRV6_ENCAP_SRC_ADDR    = 2,
+};
+
+enum {
+    NHA_JSON_STR            = 2,
 };
 
 #define MAX_MULTIPATH_NUM 514
@@ -1444,7 +1449,7 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
 
     if(h->nlmsg_type == RTM_NEWNEXTHOP || h->nlmsg_type == RTM_DELNEXTHOP)
     {
-        onNextHopMsg(h, len);
+        onNextHopGroupFullMsg(h, len);
         return;
     }
     
@@ -1858,6 +1863,81 @@ void RouteSync::onNextHopMsg(struct nlmsghdr *h, int len)
     {
         SWSS_LOG_DEBUG("NextHopGroup del event: %d", id);
         deleteNextHopGroup(id);
+    }
+
+    return;
+}
+
+/*
+ * Handle Nexthop Full msg
+ *
+ * onNextHopFullMsg() decodes the NextHopGroupFull's JSON string
+ * and create NextHopGroupFull Object, then send the object to NHG Manager.
+ *
+ * @arg nlmsghdr      Netlink messaged
+ */
+void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
+{
+    int nlmsg_type = h->nlmsg_type;
+    uint32_t id = 0;
+    struct nhmsg *nhm = NULL;
+    struct rtattr *tb[NHA_MAX + 1] = {};
+    char ifname_unknown[IFNAMSIZ] = "unknown";
+    string ifname;
+    char *json_str = NULL;
+
+    nhm = (struct nhmsg *)NLMSG_DATA(h);
+
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wcast-align"
+    struct rtattr *rta = NHA_RTA(nhm);
+    #pragma GCC diagnostic pop
+
+    netlink_parse_rtattr(tb, NHA_MAX, rta, len);
+
+    if (!tb[NHA_ID]) {
+        SWSS_LOG_ERROR(
+            "Nexthop group without an ID received from the zebra");
+        return;
+    }
+
+    /* We use the ID as a key for nhg table */
+    id = *((uint32_t *)RTA_DATA(tb[NHA_ID]));
+
+    if (nlmsg_type == RTM_NEWNEXTHOP)
+    {
+        SWSS_LOG_INFO("New nexthop group full message!");
+
+        /* Get NextHopGroupFull JSON string */
+        json_str = (char *)RTA_DATA(tb[NHA_JSON_STR]);
+        SWSS_LOG_INFO("Received JSON string: %s", json_str);
+
+        /* Conver JSON to NextHopGroupFull object */
+        nlohmann::ordered_json j = nlohmann::ordered_json::parse(json_str);
+        fib::NextHopGroupFull nhg;
+        fib::from_json(j, nhg);
+
+        /* Get ifname by ifindex */
+        char if_name[IFNAMSIZ] = {0};
+        if (!getIfName(nhg.ifindex, if_name, IFNAMSIZ))
+        {
+            strcpy(if_name, ifname_unknown);
+        }
+        ifname = string(if_name);
+        if (ifname == "eth0" || ifname == "docker0")
+        {
+            SWSS_LOG_DEBUG("Skip routes to interfaces: %s id[%d]", ifname.c_str(), id);
+            return;
+        }
+        nhg.ifname = ifname;
+
+        /* Send constructed nhg to NHGMgr */
+        addNHGFull(nhg);
+    }
+    else if (nlmsg_type == RTM_DELNEXTHOP)
+    {
+        SWSS_LOG_DEBUG("NextHopGroupFull del event: %d", id);
+        delNHGFull(id);
     }
 
     return;

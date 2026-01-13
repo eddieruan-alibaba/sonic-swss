@@ -1932,12 +1932,12 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         nhg.ifname = ifname;
 
         /* Send constructed nhg to NHGMgr */
-        addNHGFull(nhg);
+        m_rib_fib_nhg_mgr.addNHGFull(nhg);
     }
     else if (nlmsg_type == RTM_DELNEXTHOP)
     {
         SWSS_LOG_DEBUG("NextHopGroupFull del event: %d", id);
-        delNHGFull(id);
+        m_rib_fib_nhg_mgr.delNHGFull(id);
     }
 
     return;

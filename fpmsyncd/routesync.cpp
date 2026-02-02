@@ -1640,6 +1640,7 @@ void RouteSync::onRouteMsg(int nlmsg_type, struct nl_object *obj, char *vrf)
             SWSS_LOG_ERROR("NextHop group id %d not found in m_rib_nhg_table. Dropping the route %s", nhg_id, destipprefix);
             return;
         }
+        SWSS_LOG_INFO("Get NHG with id %d", nhg_id);
 
         sonic_nhg_id = entry->getSonicObjID();
 
@@ -1935,6 +1936,7 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
 
         /* Send constructed nhg to NHGMgr */
         m_rib_fib_nhg_mgr.addNHGFull(nhg);
+        SWSS_LOG_INFO("Add NHG with id %d", nhg.id);
     }
     else if (nlmsg_type == RTM_DELNEXTHOP)
     {

@@ -1662,7 +1662,6 @@ void RouteSync::onRouteMsg(int nlmsg_type, struct nl_object *obj, char *vrf)
             nhg_id_key = to_string(sonic_nhg_id);
             FieldValueTuple nhg("nexthop_group", nhg_id_key.c_str());
             fvVector.push_back(nhg);
-            m_rib_fib_nhg_mgr.addNHGFull(entry->getNHG());
         }
 
         fvVector.push_back(proto);

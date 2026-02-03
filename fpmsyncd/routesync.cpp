@@ -1883,6 +1883,7 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
 {
     int nlmsg_type = h->nlmsg_type;
     uint32_t id = 0;
+    uint8_t addr_family;
     struct nhmsg *nhm = NULL;
     struct rtattr *tb[NHA_MAX + 1] = {};
     char ifname_unknown[IFNAMSIZ] = "unknown";
@@ -1906,6 +1907,8 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
 
     /* We use the ID as a key for nhg table */
     id = *((uint32_t *)RTA_DATA(tb[NHA_ID]));
+
+    addr_family = nhm->nh_family;
 
     if (nlmsg_type == RTM_NEWNEXTHOP)
     {
@@ -1935,7 +1938,7 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         nhg.ifname = ifname;
 
         /* Send constructed nhg to NHGMgr */
-        m_rib_fib_nhg_mgr.addNHGFull(nhg);
+        m_rib_fib_nhg_mgr.addNHGFull(nhg, addr_family);
         SWSS_LOG_INFO("Add NHG with id %d", nhg.id);
     }
     else if (nlmsg_type == RTM_DELNEXTHOP)

@@ -6,6 +6,44 @@
 using namespace std;
 using namespace swss;
 
+namespace {
+// Thread-safe SWSS logger callback function.
+// All sonic_fib log messages will be forwarded to SWSS logger.
+void swssLogBridge(fib::LogLevel level, const char* file, int line,
+                   const char* func, const char* format, va_list args) {
+    // Map fib levels → SWSS levels
+    swss::Logger::Priority swssLevel;
+    switch (level) {
+        case fib::LogLevel::DEBUG: swssLevel = swss::Logger::SWSS_DEBUG; break;
+        case fib::LogLevel::INFO:  swssLevel = swss::Logger::SWSS_NOTICE; break;
+        case fib::LogLevel::WARN:  swssLevel = swss::Logger::SWSS_WARN; break;
+        case fib::LogLevel::ERROR: swssLevel = swss::Logger::SWSS_ERROR; break;
+        default: swssLevel = swss::Logger::SWSS_WARN;
+    }
+
+    // Reconstruct va_list for SWSS (must copy because va_list is consumed)
+    va_list args_copy;
+    va_copy(args_copy, args);
+
+    // Forward to SWSS with injected __FUNCTION__ pattern
+    swss::Logger::getInstance().write(
+        swssLevel,
+        ":- %s: %s",          // SWSS-style prefix + your format
+        func,                 // Injected as first %s (replaces __FUNCTION__)
+        format                // Your original format string
+    );
+
+    va_end(args_copy);
+}
+
+} // anonymous namespace
+
+// Registration helper
+void registerSwssLogger() {
+    fib::registerLogCallback(swssLogBridge);
+    fib::setLogLevel(fib::LogLevel::DEBUG); // Or INFO for production as default
+}
+
 static bool compareDependsAndDependents(const NextHopGroupFull *new_nhg, const NextHopGroupFull *oldNHG) {
     if ((new_nhg->depends.size()) != (oldNHG->depends.size())) {
         return false;
@@ -75,6 +113,9 @@ NHGMgr::NHGMgr(RedisPipeline *pipeline, const std::string &nexthopTableName, con
     m_rib_nhg_table = new RIBNHGTable(pipeline, nexthopTableName, isStateTable);
     m_sonic_nhg_table = new SonicNHGTable(pipeline, picTableName, isStateTable);
     m_sonic_id_manager.init({SONIC_NHG_OBJ_TYPE_NHG_SRV6_GATEWAY, SONIC_NHG_OBJ_TYPE_NHG_NORMAL});
+
+    // register SWSS logger
+    registerSwssLogger();
 }
 
 int NHGMgr::addNHGFull(NextHopGroupFull nhg, uint8_t af) {

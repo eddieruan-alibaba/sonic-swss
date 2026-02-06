@@ -42,6 +42,7 @@ void swssLogBridge(fib::LogLevel level, const char* file, int line,
 void registerSwssLogger() {
     fib::registerLogCallback(swssLogBridge);
     fib::setLogLevel(fib::LogLevel::DEBUG); // Or INFO for production as default
+    swssLogBridge(fib::LogLevel::INFO, __FILE__, __LINE__, __func__, "Registered SWSS logger for sonic-fib");
 }
 
 static bool compareDependsAndDependents(const NextHopGroupFull *new_nhg, const NextHopGroupFull *oldNHG) {
@@ -116,7 +117,7 @@ NHGMgr::NHGMgr(RedisPipeline *pipeline, const std::string &nexthopTableName, con
 
     // register SWSS logger
     SWSS_LOG_ERROR("Registering SWSS logger for sonic-fib");
-    //registerSwssLogger();
+    registerSwssLogger();
 }
 
 int NHGMgr::addNHGFull(NextHopGroupFull nhg, uint8_t af) {

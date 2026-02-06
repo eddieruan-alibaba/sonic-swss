@@ -115,7 +115,8 @@ NHGMgr::NHGMgr(RedisPipeline *pipeline, const std::string &nexthopTableName, con
     m_sonic_id_manager.init({SONIC_NHG_OBJ_TYPE_NHG_SRV6_GATEWAY, SONIC_NHG_OBJ_TYPE_NHG_NORMAL});
 
     // register SWSS logger
-    registerSwssLogger();
+    SWSS_LOG_ERROR("Registering SWSS logger for sonic-fib");
+    //registerSwssLogger();
 }
 
 int NHGMgr::addNHGFull(NextHopGroupFull nhg, uint8_t af) {

@@ -23,11 +23,36 @@ void swssLogBridge(fib::LogLevel level, const char* file, int line,
 
     // Force all to NOTICE
     swssLevel = swss::Logger::SWSS_NOTICE;
-    // Reconstruct va_list for SWSS (must copy because va_list is consumed)
+    // Format message into buffer
+    constexpr size_t BUFFER_SIZE = 2048;
+    std::array<char, BUFFER_SIZE> buffer;
+
     va_list args_copy;
     va_copy(args_copy, args);
-    swss::Logger::getInstance().write(swssLevel, format, args_copy);
+    int len = vsnprintf(buffer.data(), buffer.size(), format, args_copy);
     va_end(args_copy);
+
+    if (len < 0) {
+        // Formatting failed – log error with literal format
+        swss::Logger::getInstance().write(
+            swss::Logger::SWSS_ERROR,
+            "Log formatting failed (vsnprintf error)"
+        );
+        return;
+    }
+
+    if (static_cast<size_t>(len) >= buffer.size()) {
+        // Truncate gracefully with "..."
+        constexpr size_t trunc_len = BUFFER_SIZE - 4;
+        buffer[trunc_len] = '.';
+        buffer[trunc_len + 1] = '.';
+        buffer[trunc_len + 2] = '.';
+        buffer[trunc_len + 3] = '\0';
+    }
+
+    // Log with LITERAL format string "%s" → satisfies -Wformat-nonliteral
+    swss::Logger::getInstance().write(swssLevel, "%s", buffer.data());
+
 }
 
 } // anonymous namespace

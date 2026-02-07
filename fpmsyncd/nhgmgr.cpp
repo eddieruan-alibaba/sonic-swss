@@ -21,18 +21,12 @@ void swssLogBridge(fib::LogLevel level, const char* file, int line,
         default: swssLevel = swss::Logger::SWSS_WARN;
     }
 
+    // Force all to NOTICE
+    swssLevel = swss::Logger::SWSS_NOTICE;
     // Reconstruct va_list for SWSS (must copy because va_list is consumed)
     va_list args_copy;
     va_copy(args_copy, args);
-
-    // Forward to SWSS with injected __FUNCTION__ pattern
-    swss::Logger::getInstance().write(
-        swssLevel,
-        ":- %s: %s",          // SWSS-style prefix + your format
-        func,                 // Injected as first %s (replaces __FUNCTION__)
-        format                // Your original format string
-    );
-
+    swss::Logger::getInstance().write(swssLevel, format, args_copy);
     va_end(args_copy);
 }
 
@@ -42,8 +36,8 @@ void swssLogBridge(fib::LogLevel level, const char* file, int line,
 void registerSwssLogger() {
     fib::registerLogCallback(swssLogBridge);
     fib::setLogLevel(fib::LogLevel::DEBUG); // Or INFO for production as default
-    swssLogBridge(fib::LogLevel::INFO, __FILE__, __LINE__, __func__, "FIB logging initialized and forwarding to SWSS, log level set to %d", 
-        static_cast<int>(fib::getLogLevel()));
+    SWSS_LOG_NOTICE("FIB logging initialized, log level set to %d", 
+                    static_cast<int>(fib::getLogLevel()));
 }
 
 static bool compareDependsAndDependents(const NextHopGroupFull *new_nhg, const NextHopGroupFull *oldNHG) {

@@ -9,6 +9,8 @@ using namespace swss;
 namespace {
 // Thread-safe SWSS logger callback function.
 // All sonic_fib log messages will be forwarded to SWSS logger.
+// ADD THIS ATTRIBUTE BEFORE THE FUNCTION DEFINITION:
+__attribute__((format(printf, 5, 0)))
 void swssLogBridge(fib::LogLevel level, const char* file, int line,
                    const char* func, const char* format, va_list args) {
     // Map fib levels → SWSS levels

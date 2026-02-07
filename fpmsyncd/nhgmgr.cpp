@@ -42,7 +42,8 @@ void swssLogBridge(fib::LogLevel level, const char* file, int line,
 void registerSwssLogger() {
     fib::registerLogCallback(swssLogBridge);
     fib::setLogLevel(fib::LogLevel::DEBUG); // Or INFO for production as default
-    swssLogBridge(fib::LogLevel::INFO, __FILE__, __LINE__, __func__, "Registered SWSS logger for sonic-fib");
+    swssLogBridge(fib::LogLevel::INFO, __FILE__, __LINE__, __func__, "FIB logging initialized and forwarding to SWSS, log level set to %d", 
+        static_cast<int>(fib::getLogLevel()));
 }
 
 static bool compareDependsAndDependents(const NextHopGroupFull *new_nhg, const NextHopGroupFull *oldNHG) {

@@ -1531,6 +1531,12 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
         return;
     }
 
+    /* Send offload reply if suppression is not enabled */
+    if (!isSuppressionEnabled())
+    {
+        sendOffloadReply(h);
+    }
+
     switch (rtm->rtm_type)
     {
         case RTN_BLACKHOLE:

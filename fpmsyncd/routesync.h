@@ -126,6 +126,8 @@ private:
 
     void parseEncapSrv6SteerRoute(struct rtattr *tb, string &vpn_sid, string &src_addr);
 
+    bool parseEncapSrv6VpnRoute(struct rtattr *tb, uint32_t &nhg_received_id, uint32_t &nhg_id);
+
     bool parseSrv6MySid(struct rtattr *tb[], string &block_len,
                            string &node_len, string &func_len,
                            string &arg_len, string &action, string &vrf,
@@ -150,6 +152,9 @@ private:
     /* Handle SRv6 MySID */
     void onSrv6MySidMsg(struct nlmsghdr *h, int len);
 
+    /* Handle vpn route */
+    void onSrv6VpnRouteMsg(struct nlmsghdr *h, int len);
+
     /* Handle vnet route */
     void onVnetRouteMsg(int nlmsg_type, struct nl_object *obj, string vnet);
 
@@ -173,6 +178,8 @@ private:
 
     bool getSrv6SteerRouteNextHop(struct nlmsghdr *h, int received_bytes,
                         struct rtattr *tb[], string &vpn_sid, string &src_addr);
+    bool getSrv6VpnRouteNextHop(struct nlmsghdr *h, int received_bytes,
+                               struct rtattr *tb[], uint32_t &nhg_received_id, uint32_t &nhg_id);
 
     /* Get next hop list */
     void getNextHopList(struct rtnl_route *route_obj, string& gw_list,

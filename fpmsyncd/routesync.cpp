@@ -16,6 +16,8 @@
 #include <arpa/inet.h>
 #include <linux/nexthop.h>
 #include "fpmsyncd/nhgmgr.h"
+#include <linux/lwtunnel.h>
+#include <linux/seg6_iptunnel.h>
 
 using namespace std;
 using namespace swss;
@@ -112,6 +114,8 @@ enum {
     ROUTE_ENCAP_SRV6_UNSPEC            = 0,
     ROUTE_ENCAP_SRV6_VPN_SID           = 1,
     ROUTE_ENCAP_SRV6_ENCAP_SRC_ADDR    = 2,
+    ROUTE_ENCAP_SRV6_NH_RECEIVED_ID    = 3,
+    ROUTE_ENCAP_SRV6_NH_ID             = 4,
 };
 
 enum {
@@ -326,6 +330,34 @@ const char *RouteSync::mySidAction2Str(uint32_t action)
         default:
             return "unknown";
     }
+}
+
+bool RouteSync::parseEncapSrv6VpnRoute(struct rtattr *tb, uint32_t &nhg_received_id,
+                               uint32_t &nhg_id)
+{
+    SWSS_LOG_INFO("parseEncapSrv6VpnRoute begins");
+    struct rtattr *tb_encap[256] = {};
+
+    parseRtAttrNested(tb_encap, 256, tb);
+
+    if (tb_encap[ROUTE_ENCAP_SRV6_NH_RECEIVED_ID])
+        nhg_received_id = *((uint32_t *)RTA_DATA(tb_encap[ROUTE_ENCAP_SRV6_NH_RECEIVED_ID]));
+    else {
+        SWSS_LOG_INFO("parseEncapSrv6VpnRoute: ROUTE_ENCAP_SRV6_NH_RECEIVED_ID not found, exit");
+        return false;
+    }
+
+
+    if (tb_encap[ROUTE_ENCAP_SRV6_NH_ID])
+        nhg_id = *((uint32_t *)RTA_DATA(tb_encap[ROUTE_ENCAP_SRV6_NH_ID]));
+    else {
+        SWSS_LOG_INFO("parseEncapSrv6VpnRoute: ROUTE_ENCAP_SRV6_NH_ID not found, exit");
+        return false;
+    }
+    SWSS_LOG_INFO("parseEncapSrv6VpnRoute: nhg_received_id:%d nhg_id:%d ", nhg_received_id,
+                  nhg_id);
+
+    return true;
 }
 
 /**
@@ -926,6 +958,41 @@ bool RouteSync::getSrv6SteerRouteNextHop(struct nlmsghdr *h, int received_bytes,
     return true;
 }
 
+bool RouteSync::getSrv6VpnRouteNextHop(struct nlmsghdr *h, int received_bytes,
+                               struct rtattr *tb[], uint32_t &nhg_received_id,
+                               uint32_t &nhg_id)
+{
+    SWSS_LOG_INFO("getSrv6VpnRouteNextHop begins");
+    uint16_t encap = 0;
+
+    if (!tb[RTA_MULTIPATH])
+    {
+        if (tb[RTA_ENCAP_TYPE])
+        {
+            encap = *(uint16_t *)RTA_DATA(tb[RTA_ENCAP_TYPE]);
+        }
+
+        if (tb[RTA_ENCAP] && tb[RTA_ENCAP_TYPE] &&
+            *(uint16_t *)RTA_DATA(tb[RTA_ENCAP_TYPE]) ==
+                NH_ENCAP_SRV6_ROUTE)
+        {
+            return parseEncapSrv6VpnRoute(tb[RTA_ENCAP], nhg_received_id, nhg_id);
+        }
+        SWSS_LOG_DEBUG("Rx MsgType:%d encap:%d nhg_received_id:%d nhg_id:%d",
+                        h->nlmsg_type, encap, nhg_received_id,
+                        nhg_id);
+
+    }
+    else
+    {
+        /* This is a multipath route */
+        SWSS_LOG_NOTICE("Multipath SRv6 routes aren't supported");
+        return false;
+    }
+
+    return false;
+}
+
 void RouteSync::onSrv6SteerRouteMsg(struct nlmsghdr *h, int len)
 {
     struct rtmsg *rtm;
@@ -1344,6 +1411,277 @@ void RouteSync::onSrv6MySidMsg(struct nlmsghdr *h, int len)
     return;
 }
 
+void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
+{
+    SWSS_LOG_INFO("onSrv6VpnRouteMsg:Received SRv6 VPN route message");
+    struct rtmsg *rtm;
+    struct rtattr *tb[RTA_MAX + 1];
+    void *dest = NULL;
+    char dstaddr[IPV6_MAX_BYTE] = {0};
+    int dst_len = 0;
+    char destipprefix[MAX_ADDR_SIZE + 1] = {0};
+    char routeTableKey[IFNAMSIZ + MAX_ADDR_SIZE + 2] = {0};
+    int nlmsg_type = h->nlmsg_type;
+    unsigned int vrf_index;
+
+    rtm = (struct rtmsg *)NLMSG_DATA(h);
+
+    /* Parse attributes and extract fields of interest. */
+    memset(tb, 0, sizeof(tb));
+    netlink_parse_rtattr(tb, RTA_MAX, RTM_RTA(rtm), len);
+
+    if (!tb[RTA_DST])
+    {
+        SWSS_LOG_ERROR(
+            "Received an invalid SRv6 route: missing RTA_DST attribute");
+        return;
+    }
+
+    dest = RTA_DATA(tb[RTA_DST]);
+
+    if (rtm->rtm_family == AF_INET)
+    {
+        if (rtm->rtm_dst_len > IPV4_MAX_BITLEN)
+        {
+            SWSS_LOG_ERROR(
+                "Received an invalid SRv6 route: prefix len %d is out of range",
+                rtm->rtm_dst_len);
+            return;
+        }
+        memcpy(dstaddr, dest, IPV4_MAX_BYTE);
+        dst_len = rtm->rtm_dst_len;
+    }
+    else if (rtm->rtm_family == AF_INET6)
+    {
+        if (rtm->rtm_dst_len > IPV6_MAX_BITLEN)
+        {
+            SWSS_LOG_ERROR(
+                "Received an invalid SRv6 route: prefix len %d is out of range",
+                rtm->rtm_dst_len);
+            return;
+        }
+        memcpy(dstaddr, dest, IPV6_MAX_BYTE);
+        dst_len = rtm->rtm_dst_len;
+    }
+    else
+    {
+        SWSS_LOG_ERROR(
+            "Received an invalid SRv6 route: invalid address family %d",
+            rtm->rtm_family);
+        return;
+    }
+
+    inet_ntop(rtm->rtm_family, dstaddr, destipprefix, MAX_ADDR_SIZE);
+
+    SWSS_LOG_DEBUG("Rx MsgType:%d Family:%d Prefix:%s/%d", nlmsg_type,
+                   rtm->rtm_family, destipprefix, dst_len);
+
+    /* Table corresponding to route. */
+    if (tb[RTA_TABLE])
+    {
+        vrf_index = *(int *)RTA_DATA(tb[RTA_TABLE]);
+    }
+    else
+    {
+        vrf_index = rtm->rtm_table;
+    }
+
+    if (vrf_index)
+    {
+        if (!getIfName(vrf_index, routeTableKey, IFNAMSIZ))
+        {
+            SWSS_LOG_ERROR("Fail to get the VRF name (ifindex %u)", vrf_index);
+            return;
+        }
+        /*
+         * Now vrf device name is required to start with VRF_PREFIX
+         */
+        if (memcmp(routeTableKey, VRF_PREFIX, strlen(VRF_PREFIX)))
+        {
+            SWSS_LOG_ERROR("Invalid VRF name %s (ifindex %u)", routeTableKey,
+                           vrf_index);
+            return;
+        }
+        routeTableKey[strlen(routeTableKey)] = ':';
+    }
+
+    if ((rtm->rtm_family == AF_INET && dst_len == IPV4_MAX_BITLEN) ||
+        (rtm->rtm_family == AF_INET6 && dst_len == IPV6_MAX_BITLEN))
+    {
+        snprintf(routeTableKey + strlen(routeTableKey),
+                 sizeof(routeTableKey) - strlen(routeTableKey), "%s",
+                 destipprefix);
+    }
+    else
+    {
+        snprintf(routeTableKey + strlen(routeTableKey),
+                 sizeof(routeTableKey) - strlen(routeTableKey), "%s/%u",
+                 destipprefix, dst_len);
+    }
+
+    SWSS_LOG_INFO("Received route message dest ip prefix: %s Op:%s",
+                  destipprefix, nlmsg_type == RTM_NEWSRV6VPNROUTE ? "add" : "del");
+
+    if (nlmsg_type != RTM_NEWSRV6VPNROUTE && nlmsg_type != RTM_DELSRV6VPNROUTE)
+    {
+        SWSS_LOG_ERROR("Unknown message-type: %d for %s", nlmsg_type,
+                       destipprefix);
+        return;
+    }
+
+    switch (rtm->rtm_type)
+    {
+        case RTN_BLACKHOLE:
+        case RTN_UNREACHABLE:
+        case RTN_PROHIBIT:
+            SWSS_LOG_ERROR(
+                "RTN_BLACKHOLE route not expected (%s)", destipprefix);
+            return;
+        case RTN_UNICAST:
+            break;
+
+        case RTN_MULTICAST:
+        case RTN_BROADCAST:
+        case RTN_LOCAL:
+            SWSS_LOG_NOTICE(
+                "BUM routes aren't supported yet (%s)", destipprefix);
+            return;
+
+        default:
+            return;
+    }
+
+    uint32_t nhg_received_id;
+    uint32_t nhg_id;
+    bool ret;
+
+    ret = getSrv6VpnRouteNextHop(h, len, tb, nhg_received_id, nhg_id);
+    if(!ret){
+        SWSS_LOG_ERROR("onSrv6VpnRouteMsg: Fail to get nhg_received id and nhg id for SRv6 VPN route :%s", routeTableKey);
+        return ;
+    }
+
+    bool warmRestartInProgress = m_warmStartHelper.inProgress();
+
+    if (nlmsg_type == RTM_DELSRV6VPNROUTE)
+    {
+        SWSS_LOG_INFO("onSrv6VpnRouteMsg: Received RTM_DELSRV6VPNROUTE for route %s", routeTableKey);
+        if (!warmRestartInProgress)
+        {
+            m_routeTable->del(routeTableKey);
+            return;
+        }
+        else
+        {
+            SWSS_LOG_INFO("Warm-Restart mode: Receiving delete msg: %s",
+                          routeTableKey);
+
+            vector<FieldValueTuple> fvVector;
+            const KeyOpFieldsValuesTuple kfv = std::make_tuple(routeTableKey,
+                                                               DEL_COMMAND,
+                                                               fvVector);
+            m_warmStartHelper.insertRefreshMap(kfv);
+            return;
+        }
+    }
+    else if (nlmsg_type == RTM_NEWSRV6VPNROUTE)
+    {
+        SWSS_LOG_INFO("onSrv6VpnRouteMsg: Received RTM_NEWSRV6VPNROUTE for route %s", routeTableKey);
+        // auto nhg_it = m_nh_groups.find(nhg_id);
+        // auto pic_it = m_nh_groups.find(pic_id);
+
+        /* We do not use 'pic_id' from zebra as pic_context_id in rib/fib.
+         * Instead, we use nhg_id and nhg_received_id to get corresponding entries
+         * directly.
+         */
+        RIBNHGEntry *nhg_entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_id);
+        RIBNHGEntry *nhg_received_entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_received_id);
+
+        if(nhg_entry == nullptr || nhg_received_entry == nullptr)
+        {
+            SWSS_LOG_ERROR("onSrv6VpnRouteMsg: Can not find nhg_received or nhg SONiC Obj entry for vpn route :%s", routeTableKey);
+            return ;
+        }
+
+        if(nhg_received_entry->isSingleNexthop())
+        {
+            SWSS_LOG_INFO("onSrv6VpnRouteMsg: Singleton, zebra nhg_received %d, corresponding SONiC Obj ID %d",
+                   nhg_received_id, nhg_received_entry->getSonicObjID());
+
+            vector<FieldValueTuple> fvVector;
+
+            /* Get nexthop infos from nhg_received_entry */
+            FieldValueTuple nh("nexthop", nhg_received_entry->getNextHopStr().c_str());
+            FieldValueTuple vpn_sid("vpn_sid", nhg_received_entry->getVPNSIDStr().c_str());
+            FieldValueTuple seg_srcs("seg_src", nhg_received_entry->getSegSrcStr().c_str());
+            FieldValueTuple pic_context_id("pic_context_id", "");
+            FieldValueTuple nexthop_group("nexthop_group", "");
+            fvVector.push_back(nh);
+            fvVector.push_back(vpn_sid);
+            fvVector.push_back(seg_srcs);
+            fvVector.push_back(pic_context_id);
+            fvVector.push_back(nexthop_group);
+
+            //Using route-table only for single next-hop
+            // string nexthops, ifnames, weights;
+            // getNextHopGroupFields(nhg, nexthops, ifnames, weights);
+            FieldValueTuple intf("ifname", nhg_received_entry->getInterfaceNameStr().c_str());
+            fvVector.push_back(intf);
+            /* In RIB/FIB we do not write weights for SRv6 VPN case */
+            // if(!weights.empty())
+            // {
+            //     FieldValueTuple wg("weight", nhg_received_entry->getWeightStr().c_str());
+            //     fvVector.push_back(wg);
+            // }
+            m_routeTable->set(routeTableKey, fvVector);
+
+            SWSS_LOG_INFO("onSrv6VpnRouteMsg: zebra nhg_received %d is a singleton. Filling the route table %s with nexthop: %s, vpn_sid: %s, seg_src: %s, and ifname: %s",
+                   nhg_received_id, destipprefix, nhg_received_entry->getNextHopStr().c_str(),
+                   nhg_received_entry->getVPNSIDStr().c_str(), nhg_received_entry->getSegSrcStr().c_str(),
+                   nhg_received_entry->getInterfaceNameStr().c_str());
+        }
+        else{
+            vector<FieldValueTuple> fvVectorVpnRoute;
+            // FieldValueTuple pic_context_id("pic_context_id", getNextHopGroupKeyAsString(pic_id));
+            FieldValueTuple pic_context_id("pic_context_id", to_string(nhg_received_entry->getSonicGatewayObjID()));
+            fvVectorVpnRoute.push_back(pic_context_id);
+
+            vector<FieldValueTuple> fvVector;
+            // struct NextHopField nhField;
+            // string key = getNextHopGroupKeyAsString(nhg_id);
+            // getPicContextGroupFields(pic, nhField);
+
+            /* In RIB/FIB, we have already have the PIC Context when processing the NextHopGroupFull,
+             * so we do not need to update the nexthop memory table here.
+             */
+            // FieldValueTuple seg_srcs("seg_src", nhField.seg_srcs.c_str());
+            // fvVector.push_back(seg_srcs);
+            // m_nexthop_groupTable.set(key.c_str(), fvVector);
+
+            // FieldValueTuple nexthop_group("nexthop_group", getNextHopGroupKeyAsString(nhg_id));
+            FieldValueTuple nexthop_group("nexthop_group", to_string(nhg_received_entry->getSonicObjID()));
+            fvVectorVpnRoute.push_back(nexthop_group);
+
+            FieldValueTuple nh("nexthop", "");
+            FieldValueTuple vpn_sid("vpn_sid", "");
+            FieldValueTuple seg_srcs_route("seg_src", "");
+            FieldValueTuple intf("ifname", "");
+            fvVectorVpnRoute.push_back(nh);
+            fvVectorVpnRoute.push_back(vpn_sid);
+            fvVectorVpnRoute.push_back(seg_srcs_route);
+            fvVectorVpnRoute.push_back(intf);
+            m_routeTable->set(routeTableKey, fvVectorVpnRoute);
+
+            SWSS_LOG_INFO("onSrv6VpnRouteMsg: nhg_received %d is multi-nexthop NHG. Filling the route table %s with pic_context_id: %d, nexthop_group: %d",
+                   nhg_received_id, destipprefix,
+                   nhg_received_entry->getSonicGatewayObjID(), nhg_received_entry->getSonicObjID());
+        }
+
+    }
+
+    return;
+}
+
 uint16_t RouteSync::getEncapType(struct nlmsghdr *h)
 {
     int len;
@@ -1427,6 +1765,8 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
         && (h->nlmsg_type != RTM_DELSRV6LOCALSID)
         && (h->nlmsg_type != RTM_NEWNEXTHOP)
         && (h->nlmsg_type != RTM_DELNEXTHOP)
+        && (h->nlmsg_type != RTM_NEWSRV6VPNROUTE)
+        && (h->nlmsg_type != RTM_DELSRV6VPNROUTE)
     )
         return;
 
@@ -1452,7 +1792,14 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
         onNextHopGroupFullMsg(h, len);
         return;
     }
-    
+
+    if ((h->nlmsg_type == RTM_NEWSRV6VPNROUTE)
+        || (h->nlmsg_type == RTM_DELSRV6VPNROUTE))
+    {
+        onSrv6VpnRouteMsg(h, len);
+        return;
+    }
+
     if ((h->nlmsg_type == RTM_NEWSRV6LOCALSID)
         || (h->nlmsg_type == RTM_DELSRV6LOCALSID))
     {

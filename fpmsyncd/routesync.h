@@ -113,6 +113,9 @@ private:
     /* nhgmgr for rib/fib */
     NHGMgr m_rib_fib_nhg_mgr;
 
+    /* NHG FULL debug purpose only. No need to be handled during warm reboot */
+    shared_ptr<ProducerStateTable> m_NhgFullStateTable;
+
     bool                m_isSuppressionEnabled{false};
     FpmInterface*       m_fpmInterface {nullptr};
 

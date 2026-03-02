@@ -2262,7 +2262,7 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         /* Get NextHopGroupFull JSON string */
         json_str = (char *)RTA_DATA(tb[NHA_JSON_STR]);
         SWSS_LOG_NOTICE("Received JSON string: %s, id %d", json_str, id);
-        m_NhgFullStateTable.set(to_string(id), {{"json_str", json_str}});
+        m_NhgFullStateTable->set(to_string(id), {{"json_str", json_str}});
 
         /* Conver JSON to NextHopGroupFull object */
         nlohmann::ordered_json j = nlohmann::ordered_json::parse(json_str);
@@ -2290,7 +2290,7 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
     else if (nlmsg_type == RTM_DELNEXTHOP)
     {
         SWSS_LOG_NOTICE("NextHopGroupFull del event: %d", id);
-        m_NhgFullStateTable.del(to_string(id));
+        m_NhgFullStateTable->del(to_string(id));
         m_rib_fib_nhg_mgr.delNHGFull(id);
     }
 

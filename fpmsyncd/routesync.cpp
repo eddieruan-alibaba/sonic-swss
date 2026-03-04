@@ -1596,6 +1596,7 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
          */
         RIBNHGEntry *nhg_entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_id);
         RIBNHGEntry *nhg_received_entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_received_id);
+        SWSS_LOG_INFO("onSrv6VpnRouteMsg: nhg_received_id %d, nhg_id %d", nhg_received_id, nhg_id);
 
         if(nhg_entry == nullptr || nhg_received_entry == nullptr)
         {

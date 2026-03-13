@@ -637,6 +637,7 @@ RIBNHGTable::RIBNHGTable(RedisPipeline *pipeline, const std::string &tableName, 
  */
 RIBNHGEntry *RIBNHGTable::getEntry(uint32_t id) {
     auto it = m_nhg_map.find(id);
+    SWSS_LOG_NOTICE("Get RIB NHG entry for %d, size %zu", id, m_nhg_map.size());
     if (it == m_nhg_map.end()) {
         return nullptr;
     }
@@ -732,6 +733,7 @@ int RIBNHGTable::delEntry(uint32_t id) {
     this->removeFromDB(entry);
     delete entry;
     m_nhg_map.erase(id);
+    SWSS_LOG_NOTICE("Delete RIB NHG entry for %d, size %zu", id, m_nhg_map.size());
     return 0;
 }
 
@@ -761,6 +763,7 @@ int RIBNHGTable::addEntry(NextHopGroupFull nhg, uint8_t af) {
     }
 
     m_nhg_map.insert(std::make_pair(nhg.id, entry));
+    SWSS_LOG_NOTICE("Add RIB NHG entry for %d, size %zu", nhg.id, m_nhg_map.size());
     return 0;
 }
 

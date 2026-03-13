@@ -2264,7 +2264,7 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
 
         /* Get NextHopGroupFull JSON string */
         json_str = (char *)RTA_DATA(tb[NHA_JSON_STR]);
-        SWSS_LOG_INFO("Received JSON string: %s", json_str);
+        SWSS_LOG_NOTICE("Received NHGFULL %d JSON string: %s", id, json_str);
 
         /* Conver JSON to NextHopGroupFull object */
         nlohmann::ordered_json j = nlohmann::ordered_json::parse(json_str);

@@ -1598,7 +1598,7 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
         RIBNHGEntry *nhg_received_entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_received_id);
         SWSS_LOG_INFO("onSrv6VpnRouteMsg: nhg_received_id %d, nhg_id %d", nhg_received_id, nhg_id);
 
-        if(nhg_entry == nullptr || nhg_received_entry == nullptr)
+        if(nhg_entry == nullptr && nhg_received_entry == nullptr)
         {
             SWSS_LOG_ERROR("onSrv6VpnRouteMsg: Can not find nhg_received or nhg SONiC Obj entry for vpn route :%s nhg_id: %d nhg_received_id: %d", 
                 routeTableKey, nhg_id, nhg_received_id);

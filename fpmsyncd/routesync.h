@@ -48,7 +48,7 @@ class RouteSync : public NetMsg
 public:
     enum { MAX_ADDR_SIZE = 64 };
 
-    RouteSync(RedisPipeline *pipeline);
+    RouteSync(RedisPipeline *pipeline, RedisPipeline *app_state_pipeline);
 
     virtual void onMsg(int nlmsg_type, struct nl_object *obj);
 
@@ -112,6 +112,10 @@ private:
 
     /* nhgmgr for rib/fib */
     NHGMgr m_rib_fib_nhg_mgr;
+
+    /* APPL_STATE_DB pipeline and NHG Full debug state table */
+    RedisPipeline *m_app_state_pipeline;
+    swss::Table m_nhgFullStateTable;
 
     bool                m_isSuppressionEnabled{false};
     FpmInterface*       m_fpmInterface {nullptr};

@@ -154,7 +154,7 @@ static decltype(auto) makeNlAddr(const T& ip)
 }
 
 
-RouteSync::RouteSync(RedisPipeline *pipeline) :
+RouteSync::RouteSync(RedisPipeline *pipeline, RedisPipeline *app_state_pipeline) :
     // When the feature ORCH_NORTHBOND_ROUTE_ZMQ_ENABLED is enabled, route events must be sent to orchagent via the ZMQ channel.
     m_zmqClient(create_local_zmq_client(ORCH_NORTHBOND_ROUTE_ZMQ_ENABLED, false)),
     m_routeTable(createProducerStateTable(pipeline, APP_ROUTE_TABLE_NAME, true, m_zmqClient)),
@@ -166,7 +166,9 @@ RouteSync::RouteSync(RedisPipeline *pipeline) :
     m_srv6MySidTable(pipeline, APP_SRV6_MY_SID_TABLE_NAME, true),
     m_srv6SidListTable(pipeline, APP_SRV6_SID_LIST_TABLE_NAME, true),
     m_nl_sock(NULL), m_link_cache(NULL),
-    m_rib_fib_nhg_mgr(pipeline, APP_NEXTHOP_GROUP_TABLE_NAME, APP_PIC_CONTEXT_TABLE_NAME, true)
+    m_rib_fib_nhg_mgr(pipeline, APP_NEXTHOP_GROUP_TABLE_NAME, APP_PIC_CONTEXT_TABLE_NAME, true),
+    m_app_state_pipeline(app_state_pipeline),
+    m_nhgFullStateTable(app_state_pipeline, "NHG_FULL_STATE_TABLE", true)
 
 {
     m_nl_sock = nl_socket_alloc();
@@ -2288,11 +2290,57 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         /* Send constructed nhg to NHGMgr */
         m_rib_fib_nhg_mgr.addNHGFull(nhg, addr_family);
         SWSS_LOG_INFO("Add NHG with id %d", nhg.id);
+
+        /*
+         * Write decoded NHG Full info to APPL_STATE_DB for debugging.
+         * key: nhg_id
+         * value: NextHopGroupFull(json_str), nh_grp_full(list), depends(list), dependents(list)
+         */
+        std::vector<FieldValueTuple> fvs;
+
+        /* Raw JSON string */
+        fvs.emplace_back("json", string(json_str));
+
+        /* nh_grp_full list: format "[id:weight:num_direct,...]" */
+        string nh_grp_str = "[";
+        for (auto &ng : nhg.nh_grp_full_list)
+        {
+            if (nh_grp_str.size() > 1) nh_grp_str += ",";
+            nh_grp_str += to_string(ng.id) + ":" + to_string(ng.weight) + ":" + to_string(ng.num_direct);
+        }
+        nh_grp_str += "]";
+        fvs.emplace_back("nh_grp_full", nh_grp_str);
+
+        /* depends list: format "[id1,id2,...]" */
+        string depends_str = "[";
+        for (auto dep : nhg.depends)
+        {
+            if (depends_str.size() > 1) depends_str += ",";
+            depends_str += to_string(dep);
+        }
+        depends_str += "]";
+        fvs.emplace_back("depends", depends_str);
+
+        /* dependents list: format "[id1,id2,...]" */
+        string dependents_str = "[";
+        for (auto dep : nhg.dependents)
+        {
+            if (dependents_str.size() > 1) dependents_str += ",";
+            dependents_str += to_string(dep);
+        }
+        dependents_str += "]";
+        fvs.emplace_back("dependents", dependents_str);
+
+        m_nhgFullStateTable.set(to_string(id), fvs);
+        m_app_state_pipeline->flush();
     }
     else if (nlmsg_type == RTM_DELNEXTHOP)
     {
         SWSS_LOG_DEBUG("NextHopGroupFull del event: %d", id);
         m_rib_fib_nhg_mgr.delNHGFull(id);
+        /* Remove debug state entry from APPL_STATE_DB */
+        m_nhgFullStateTable.del(to_string(id));
+        m_app_state_pipeline->flush();
     }
 
     return;

@@ -2298,8 +2298,8 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
          */
         std::vector<FieldValueTuple> fvs;
 
-        /* Raw JSON string */
-        fvs.emplace_back("json", string(json_str));
+        /* Raw JSON string (pretty-printed for readability) */
+        fvs.emplace_back("json", j.dump(4));
 
         /* nh_grp_full list: format "[id:weight:num_direct,...]" */
         string nh_grp_str = "[";

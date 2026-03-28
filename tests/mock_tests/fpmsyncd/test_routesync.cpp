@@ -775,10 +775,9 @@ TEST_F(FpmSyncdResponseTest, TestNextHopGroupAdd)
     free(group_nlh);
 }
 
-// TODO: This test case uses the old onNextHopMsg() interface which populates the legacy m_nh_groups memory table.
-// Since the implementation has been migrated to use NHGMgr with onNextHopGroupFullMsg(), this test needs to be
-// updated to use the new interface. Temporarily disabled until the test can be rewritten for the new architecture.
-/*
+// When HAVE_NHG_FULL is enabled, onNextHopMsg() is replaced by onNextHopGroupFullMsg()
+// and the legacy m_nh_groups table is no longer used. This test only runs without NHG Full.
+#ifndef HAVE_NHG_FULL
 TEST_F(FpmSyncdResponseTest, TestRouteMsgWithNHG)
 {
     Table route_table(m_db.get(), APP_ROUTE_TABLE_NAME);
@@ -915,7 +914,7 @@ TEST_F(FpmSyncdResponseTest, TestRouteMsgWithNHG)
 
     rtnl_route_put(test_route);
 }
-*/
+#endif // HAVE_NHG_FULL
 
 
 TEST_F(FpmSyncdResponseTest, RouteResponseOnNoProto)

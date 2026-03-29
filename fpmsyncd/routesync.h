@@ -61,6 +61,16 @@ public:
         return m_isSuppressionEnabled;
     }
 
+    void setNhgFibEnabled(bool enabled)
+    {
+        m_nhgFibEnabled = enabled;
+    }
+
+    bool isNhgFibEnabled() const
+    {
+        return m_nhgFibEnabled;
+    }
+
     /* Helper method to set route table with warm restart support */
     void setRouteWithWarmRestart(const std::string& key, const std::vector<FieldValueTuple>& fvVector,
                                  shared_ptr<ProducerStateTable> table, const std::string& cmd = SET_COMMAND);
@@ -118,6 +128,7 @@ private:
     swss::Table m_nhgFullStateTable;
 
     bool                m_isSuppressionEnabled{false};
+    bool                m_nhgFibEnabled{false};
     FpmInterface*       m_fpmInterface {nullptr};
 
     /* Handle regular route (include VRF route) */

@@ -1416,10 +1416,11 @@ void RouteSync::onSrv6MySidMsg(struct nlmsghdr *h, int len)
 void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
 {
     SWSS_LOG_INFO("onSrv6VpnRouteMsg:Received SRv6 VPN route message");
-#ifndef HAVE_NHG_FULL
-    SWSS_LOG_INFO("onSrv6VpnRouteMsg: NHG Full is not enabled, skipping SRv6 VPN route processing");
-    return;
-#endif
+    if (!m_nhgFibEnabled)
+    {
+        SWSS_LOG_INFO("onSrv6VpnRouteMsg: NHG Full is not enabled, skipping SRv6 VPN route processing");
+        return;
+    }
     struct rtmsg *rtm;
     struct rtattr *tb[RTA_MAX + 1];
     void *dest = NULL;
@@ -1779,12 +1780,15 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
         && (h->nlmsg_type != RTM_DELSRV6LOCALSID)
         && (h->nlmsg_type != RTM_NEWNEXTHOP)
         && (h->nlmsg_type != RTM_DELNEXTHOP)
+        && (h->nlmsg_type != RTM_NEWNHGFIB)
+        && (h->nlmsg_type != RTM_DELNHGFIB)
         && (h->nlmsg_type != RTM_NEWSRV6VPNROUTE)
         && (h->nlmsg_type != RTM_DELSRV6VPNROUTE)
     )
         return;
 
-    if(h->nlmsg_type == RTM_NEWNEXTHOP || h->nlmsg_type == RTM_DELNEXTHOP)
+    if(h->nlmsg_type == RTM_NEWNEXTHOP || h->nlmsg_type == RTM_DELNEXTHOP
+       || h->nlmsg_type == RTM_NEWNHGFIB || h->nlmsg_type == RTM_DELNHGFIB)
     {
         len = (int)(h->nlmsg_len - NLMSG_LENGTH(sizeof(struct nhmsg)));
     }
@@ -1801,13 +1805,15 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
         return;
     }
 
+    if(h->nlmsg_type == RTM_NEWNHGFIB || h->nlmsg_type == RTM_DELNHGFIB)
+    {
+        onNextHopGroupFullMsg(h, len);
+        return;
+    }
+
     if(h->nlmsg_type == RTM_NEWNEXTHOP || h->nlmsg_type == RTM_DELNEXTHOP)
     {
-#ifdef HAVE_NHG_FULL
-        onNextHopGroupFullMsg(h, len);
-#else
         onNextHopMsg(h, len);
-#endif
         return;
     }
 
@@ -1995,71 +2001,74 @@ void RouteSync::onRouteMsg(int nlmsg_type, struct nl_object *obj, char *vrf)
 
     string nhg_id_key;
     uint32_t nhg_id = rtnl_route_get_nh_id(route_obj);
+    uint32_t sonic_nhg_id = 0;
     if(nhg_id)
     {
-#ifdef HAVE_NHG_FULL
-        uint32_t sonic_nhg_id;
-        RIBNHGEntry *entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_id);
-
-        if (!entry)
+        if (m_nhgFibEnabled)
         {
-            SWSS_LOG_ERROR("NextHop group id %d not found in m_rib_nhg_table. Dropping the route %s", nhg_id, destipprefix);
-            return;
-        }
-        SWSS_LOG_INFO("Get NHG with id %d", nhg_id);
+            RIBNHGEntry *entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_id);
 
-        sonic_nhg_id = entry->getSonicObjID();
+            if (!entry)
+            {
+                SWSS_LOG_ERROR("NextHop group id %d not found in m_rib_nhg_table. Dropping the route %s", nhg_id, destipprefix);
+                return;
+            }
+            SWSS_LOG_INFO("Get NHG with id %d", nhg_id);
 
-        if(entry->isSingleNexthop())
-        {
-            // Using route-table only for single next-hop
-            string nexthops = entry->getNextHopStr();
-            string ifnames = entry->getInterfaceNameStr();
+            sonic_nhg_id = entry->getSonicObjID();
 
-            FieldValueTuple gw("nexthop", nexthops.c_str());
-            FieldValueTuple intf("ifname", ifnames.c_str());
-            fvVector.push_back(gw);
-            fvVector.push_back(intf);
+            if(entry->isSingleNexthop())
+            {
+                // Using route-table only for single next-hop
+                string nexthops = entry->getNextHopStr();
+                string ifnames = entry->getInterfaceNameStr();
 
-            SWSS_LOG_DEBUG("NextHop group id %d (zebra id: %d) is a single nexthop address. Filling the route table %s with nexthop and ifname", sonic_nhg_id, nhg_id, destipprefix);
-        }
-        else
-        {
-            nhg_id_key = to_string(sonic_nhg_id);
-            FieldValueTuple nhg("nexthop_group", nhg_id_key.c_str());
-            fvVector.push_back(nhg);
-        }
-#else
-        const auto itg = m_nh_groups.find(nhg_id);
-        if(itg == m_nh_groups.end())
-        {
-            SWSS_LOG_ERROR("NextHop group id %d not found. Dropping the route %s", nhg_id, destipprefix);
-            return;
-        }
+                FieldValueTuple gw("nexthop", nexthops.c_str());
+                FieldValueTuple intf("ifname", ifnames.c_str());
+                fvVector.push_back(gw);
+                fvVector.push_back(intf);
 
-        NextHopGroup& nhg = itg->second;
-        if(nhg.group.size() == 0)
-        {
-            // Using route-table only for single next-hop
-            string nexthops = nhg.nexthop.empty() ? (rtnl_route_get_family(route_obj) == AF_INET ? "0.0.0.0" : "::") : nhg.nexthop;
-            string ifnames, weights;
-            getNextHopGroupFields(nhg, nexthops, ifnames, weights, rtnl_route_get_family(route_obj));
-
-            FieldValueTuple gw("nexthop", nexthops.c_str());
-            FieldValueTuple intf("ifname", ifnames.c_str());
-            fvVector.push_back(gw);
-            fvVector.push_back(intf);
-
-            SWSS_LOG_DEBUG("NextHop group id %d is a single nexthop address. Filling the route table %s with nexthop and ifname", nhg_id, destipprefix);
+                SWSS_LOG_DEBUG("NextHop group id %d (zebra id: %d) is a single nexthop address. Filling the route table %s with nexthop and ifname", sonic_nhg_id, nhg_id, destipprefix);
+            }
+            else
+            {
+                nhg_id_key = to_string(sonic_nhg_id);
+                FieldValueTuple nhg("nexthop_group", nhg_id_key.c_str());
+                fvVector.push_back(nhg);
+            }
         }
         else
         {
-            nhg_id_key = getNextHopGroupKeyAsString(nhg_id);
-            FieldValueTuple nhg_fv("nexthop_group", nhg_id_key.c_str());
-            fvVector.push_back(nhg_fv);
-            installNextHopGroup(nhg_id);
+            const auto itg = m_nh_groups.find(nhg_id);
+            if(itg == m_nh_groups.end())
+            {
+                SWSS_LOG_ERROR("NextHop group id %d not found. Dropping the route %s", nhg_id, destipprefix);
+                return;
+            }
+
+            NextHopGroup& nhg = itg->second;
+            if(nhg.group.size() == 0)
+            {
+                // Using route-table only for single next-hop
+                string nexthops = nhg.nexthop.empty() ? (rtnl_route_get_family(route_obj) == AF_INET ? "0.0.0.0" : "::") : nhg.nexthop;
+                string ifnames, weights;
+                getNextHopGroupFields(nhg, nexthops, ifnames, weights, rtnl_route_get_family(route_obj));
+
+                FieldValueTuple gw("nexthop", nexthops.c_str());
+                FieldValueTuple intf("ifname", ifnames.c_str());
+                fvVector.push_back(gw);
+                fvVector.push_back(intf);
+
+                SWSS_LOG_DEBUG("NextHop group id %d is a single nexthop address. Filling the route table %s with nexthop and ifname", nhg_id, destipprefix);
+            }
+            else
+            {
+                nhg_id_key = getNextHopGroupKeyAsString(nhg_id);
+                FieldValueTuple nhg_fv("nexthop_group", nhg_id_key.c_str());
+                fvVector.push_back(nhg_fv);
+                installNextHopGroup(nhg_id);
+            }
         }
-#endif
 
         fvVector.push_back(proto);
 
@@ -2131,11 +2140,10 @@ void RouteSync::onRouteMsg(int nlmsg_type, struct nl_object *obj, char *vrf)
     if (nhg_id)
     {
         setRouteWithWarmRestart(destipprefix, fvVector, m_routeTable, SET_COMMAND);
-#ifdef HAVE_NHG_FULL
-        SWSS_LOG_INFO("RouteTable set msg with NHG: %s nhg_id:%d (zebra id: %d)", destipprefix, sonic_nhg_id, nhg_id);
-#else
-        SWSS_LOG_INFO("RouteTable set msg with NHG: %s nhg_id:%d", destipprefix, nhg_id);
-#endif
+        if (m_nhgFibEnabled)
+            SWSS_LOG_INFO("RouteTable set msg with NHG: %s nhg_id:%d (zebra id: %d)", destipprefix, sonic_nhg_id, nhg_id);
+        else
+            SWSS_LOG_INFO("RouteTable set msg with NHG: %s nhg_id:%d", destipprefix, nhg_id);
     }
     else
     {

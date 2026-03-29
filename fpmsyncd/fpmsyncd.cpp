@@ -112,6 +112,13 @@ int main(int argc, char **argv)
         sync.setSuppressionEnabled(true);
     }
 
+    std::string nhgFibEnabledStr;
+    deviceMetadataTable.hget("localhost", "nhg_fib", nhgFibEnabledStr);
+    if (nhgFibEnabledStr == "enabled")
+    {
+        sync.setNhgFibEnabled(true);
+    }
+
     while (true)
     {
         try

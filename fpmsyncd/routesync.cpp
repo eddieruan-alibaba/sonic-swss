@@ -1416,11 +1416,6 @@ void RouteSync::onSrv6MySidMsg(struct nlmsghdr *h, int len)
 void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
 {
     SWSS_LOG_INFO("onSrv6VpnRouteMsg:Received SRv6 VPN route message");
-    if (!m_nhgFibEnabled)
-    {
-        SWSS_LOG_INFO("onSrv6VpnRouteMsg: NHG Full is not enabled, skipping SRv6 VPN route processing");
-        return;
-    }
     struct rtmsg *rtm;
     struct rtattr *tb[RTA_MAX + 1];
     void *dest = NULL;

@@ -201,7 +201,7 @@ public:
 
     virtual ~RouteSync();
 
-    RouteSync(RedisPipeline *pipeline);
+    RouteSync(RedisPipeline *pipeline, RedisPipeline *app_state_pipeline);
 
     virtual void onMsg(int nlmsg_type, struct nl_object *obj);
 
@@ -297,6 +297,9 @@ private:
     map<string, uint32_t> m_srv6_sidlist_refcnt;
 
     WarmStartHelper  m_warmStartHelper;
+    /* APPL_STATE_DB pipeline and NHG Full debug state table */
+    RedisPipeline *m_app_state_pipeline;
+    swss::Table m_nhgFullStateTable;
 
     bool                m_isSuppressionEnabled{false};
     bool                m_nhgFibEnabled{false};

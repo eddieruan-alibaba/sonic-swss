@@ -1,6 +1,7 @@
 #include "nhgmgr.h"
 #include "logger.h"
 #include <string.h>
+#include <queue>
 
 
 using namespace std;
@@ -1936,5 +1937,166 @@ int SonicNHGObjectKey::createSonicGateWayNHGObjectKey(RIBNHGEntry *entry, SonicN
         return ret;
     }
     key_out = createSonicGateWayNHGObjectKey(obj);
+    return 0;
+}
+
+/*
+ * Re-resolve an existing RIBNHGEntry without changing its dependencies.
+ * Recomputes m_resolvedGroup and m_fvVector from current dependency state.
+ * Used when an NHT event changes the NHG a dependent resolves through.
+ */
+int RIBNHGEntry::reResolveEntry() {
+    m_resolvedGroup.clear();
+
+    if (getResolvedGroupFromNHGFull() != 0) {
+        SWSS_LOG_ERROR("reResolveEntry: failed to get resolved group for %d", m_rib_id);
+        return -1;
+    }
+
+    if (syncFvVector() != 0) {
+        SWSS_LOG_ERROR("reResolveEntry: failed to sync fv vector for %d", m_rib_id);
+        return -1;
+    }
+
+    return 0;
+}
+
+/*
+ * Handle NHT (Next-Hop Tracking) event.
+ *
+ * When zebra resolves a tracked nexthop through a different NHG, this method:
+ *   1) Backwalk: find all RIBNHGEntries whose group references prev_nhg_id
+ *      as a member, and collect them as "affected".
+ *   2) For each affected entry, re-resolve the group (recompute resolved
+ *      members and FV vectors) and rewrite to DB.
+ *   3) Forward walk: recursively process each affected entry's dependents,
+ *      since their resolved state may have changed transitively.
+ *
+ * prev_nhg_id: the NHG ID that was previously resolving the tracked prefix.
+ *              May be 0 if there was no previous resolution.
+ * curr_nhg_id: the NHG ID that now resolves the tracked prefix.
+ *              May be 0 if the prefix is now unresolved.
+ *
+ * Returns 0 on success, -1 on failure.
+ */
+int NHGMgr::onNhtEvent(uint32_t prev_nhg_id, uint32_t curr_nhg_id) {
+
+    SWSS_LOG_NOTICE("NHT event: prev_nhg_id=%u curr_nhg_id=%u", prev_nhg_id, curr_nhg_id);
+
+    if (prev_nhg_id == curr_nhg_id) {
+        SWSS_LOG_DEBUG("NHT event: no change (prev == curr), skipping");
+        return 0;
+    }
+
+    /*
+     * Collect the set of affected entry IDs.
+     *
+     * An entry is affected if its m_group contains prev_nhg_id as a member.
+     * This covers both:
+     *   - entries that directly list prev_nhg_id in nh_grp_full_list
+     *   - entries that have prev_nhg_id in their depends set
+     *
+     * We also look at the dependents of prev_nhg_id (if it exists) as these
+     * are entries that explicitly depend on prev_nhg_id.
+     */
+    set<uint32_t> affected;
+
+    /* Start from prev_nhg_id's dependents if the entry exists */
+    if (prev_nhg_id != 0) {
+        RIBNHGEntry *prevEntry = m_rib_nhg_table->getEntry(prev_nhg_id);
+        if (prevEntry != nullptr) {
+            set<uint32_t> deps = prevEntry->getDependentsID();
+            affected.insert(deps.begin(), deps.end());
+        }
+    }
+
+    /* Also check curr_nhg_id's dependents -- they may need re-resolve too */
+    if (curr_nhg_id != 0) {
+        RIBNHGEntry *currEntry = m_rib_nhg_table->getEntry(curr_nhg_id);
+        if (currEntry != nullptr) {
+            set<uint32_t> deps = currEntry->getDependentsID();
+            affected.insert(deps.begin(), deps.end());
+        }
+    }
+
+    if (affected.empty()) {
+        SWSS_LOG_DEBUG("NHT event: no affected entries found");
+        return 0;
+    }
+
+    SWSS_LOG_NOTICE("NHT event: %zu affected entries to re-resolve", affected.size());
+
+    /*
+     * BFS forward walk: process affected entries and propagate to their dependents.
+     * Use a queue to avoid recursion and handle deep dependency chains.
+     */
+    set<uint32_t> visited;
+    queue<uint32_t> worklist;
+    for (uint32_t id : affected) {
+        worklist.push(id);
+    }
+
+    while (!worklist.empty()) {
+        uint32_t id = worklist.front();
+        worklist.pop();
+
+        if (visited.count(id)) {
+            continue;
+        }
+        visited.insert(id);
+
+        RIBNHGEntry *entry = m_rib_nhg_table->getEntry(id);
+        if (entry == nullptr) {
+            SWSS_LOG_WARN("NHT backwalk: entry %u not found, skipping", id);
+            continue;
+        }
+
+        SWSS_LOG_NOTICE("NHT backwalk: re-resolving entry %u (sonicObjID=%u)",
+                        id, entry->getSonicObjID());
+
+        /* Re-resolve: recompute resolved group and FV vectors */
+        if (entry->reResolveEntry() != 0) {
+            SWSS_LOG_ERROR("NHT backwalk: failed to re-resolve entry %u", id);
+            continue;
+        }
+
+        /* Rewrite to DB if entry has a sonic object */
+        if (entry->getSonicObjID() != 0) {
+            if (m_rib_nhg_table->writeToDB(entry) != 0) {
+                SWSS_LOG_ERROR("NHT backwalk: failed to write entry %u to DB", id);
+                continue;
+            }
+            SWSS_LOG_NOTICE("NHT backwalk: rewrote entry %u (sonicObjID=%u) to DB",
+                            id, entry->getSonicObjID());
+        }
+
+        /* Update sonic gateway object if applicable */
+        if (entry->hasSonicGatewayObj()) {
+            uint32_t gwObjID = entry->getSonicGatewayObjID();
+            if (gwObjID != 0) {
+                SonicGateWayNHGEntry *sonicEntry =
+                    m_sonic_nhg_table->getEntry(entry->getSonicObjType(), gwObjID);
+                if (sonicEntry != nullptr) {
+                    SonicGateWayNHGObject sonicObj;
+                    entry->createSonicGateWayNHGObjectFromRIBEntry(sonicObj);
+                    sonicObj.id = gwObjID;
+                    m_sonic_nhg_table->updateEntry(sonicObj);
+                    m_sonic_nhg_table->writeToDB(sonicEntry);
+                    SWSS_LOG_NOTICE("NHT backwalk: rewrote gateway obj %u for entry %u",
+                                    gwObjID, id);
+                }
+            }
+        }
+
+        /* Forward walk: enqueue this entry's dependents */
+        set<uint32_t> entryDeps = entry->getDependentsID();
+        for (uint32_t depId : entryDeps) {
+            if (!visited.count(depId)) {
+                worklist.push(depId);
+            }
+        }
+    }
+
+    SWSS_LOG_NOTICE("NHT event: processed %zu entries total", visited.size());
     return 0;
 }

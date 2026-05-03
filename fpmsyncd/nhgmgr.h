@@ -613,6 +613,14 @@ namespace swss {
         void setSonicGatewayObjId(uint32_t id);
 
         /*
+         * Re-resolve the entry: recompute m_resolvedGroup and m_fvVector
+         * from the current dependency state without changing dependencies.
+         * Used during NHT event backwalk.
+         * Returns 0 on success, -1 on failure.
+         */
+        int reResolveEntry();
+
+        /*
          * set the value of entry from NextHopGroupFull Object
          * and sync the FV vector of entry
          */
@@ -838,6 +846,9 @@ namespace swss {
         // check if NHG entry exist in table by rib ID
         bool isNHGExist(uint32_t id);
 
+        // get all entries in the table (for iteration)
+        const map<uint32_t, RIBNHGEntry *>& getAllEntries() const { return m_nhg_map; }
+
         // write the NHG entry to DB
         int writeToDB(RIBNHGEntry *entry);
 
@@ -918,6 +929,9 @@ namespace swss {
 
         // Not implemented
         RIBNHGEntry *getRIBNHGEntryByKey(string key);
+
+        // Handle NHT event: resolution of a tracked nexthop changed
+        int onNhtEvent(uint32_t prev_nhg_id, uint32_t curr_nhg_id);
 
     private:
         DBConnector *m_db;

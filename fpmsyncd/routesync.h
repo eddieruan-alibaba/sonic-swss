@@ -127,6 +127,9 @@ private:
     RedisPipeline *m_app_state_pipeline;
     swss::Table m_nhgFullStateTable;
 
+    /* NHT event debug state table */
+    swss::Table m_nhtEventStateTable;
+
     bool                m_isSuppressionEnabled{false};
     bool                m_nhgFibEnabled{false};
     FpmInterface*       m_fpmInterface {nullptr};
@@ -226,6 +229,8 @@ private:
     /* Handle Nexthop message */
     void onNextHopMsg(struct nlmsghdr *h, int len);
     void onNextHopGroupFullMsg(struct nlmsghdr *h, int len);
+    /* Handle NHT (next-hop tracking) event */
+    void onNhtEventMsg(struct nlmsghdr *h, int len);
     /* Get next hop group key */
     const string getNextHopGroupKeyAsString(uint32_t id) const;
     void installNextHopGroup(uint32_t nh_id);

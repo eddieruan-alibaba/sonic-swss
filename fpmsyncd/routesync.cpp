@@ -168,7 +168,8 @@ RouteSync::RouteSync(RedisPipeline *pipeline, RedisPipeline *app_state_pipeline)
     m_nl_sock(NULL), m_link_cache(NULL),
     m_rib_fib_nhg_mgr(pipeline, APP_NEXTHOP_GROUP_TABLE_NAME, APP_PIC_CONTEXT_TABLE_NAME, true),
     m_app_state_pipeline(app_state_pipeline),
-    m_nhgFullStateTable(app_state_pipeline, "NHG_FULL_STATE_TABLE", true)
+    m_nhgFullStateTable(app_state_pipeline, "NHG_FULL_STATE_TABLE", true),
+    m_nhtEventStateTable(app_state_pipeline, "NHT_EVENT_STATE_TABLE", true)
 
 {
     m_nl_sock = nl_socket_alloc();
@@ -1777,6 +1778,7 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
         && (h->nlmsg_type != RTM_DELNEXTHOP)
         && (h->nlmsg_type != RTM_NEWNHGFIB)
         && (h->nlmsg_type != RTM_DELNHGFIB)
+        && (h->nlmsg_type != RTM_NEWNHTEVENT)
         && (h->nlmsg_type != RTM_NEWSRV6VPNROUTE)
         && (h->nlmsg_type != RTM_DELSRV6VPNROUTE)
     )
@@ -1786,6 +1788,10 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
        || h->nlmsg_type == RTM_NEWNHGFIB || h->nlmsg_type == RTM_DELNHGFIB)
     {
         len = (int)(h->nlmsg_len - NLMSG_LENGTH(sizeof(struct nhmsg)));
+    }
+    else if(h->nlmsg_type == RTM_NEWNHTEVENT)
+    {
+        len = (int)(h->nlmsg_len - NLMSG_LENGTH(sizeof(struct rtmsg)));
     }
     else
     {
@@ -1797,6 +1803,12 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
         SWSS_LOG_ERROR("%s: Message received from netlink is of a broken size %d %zu",
             __PRETTY_FUNCTION__, h->nlmsg_len,
             (size_t)NLMSG_LENGTH(sizeof(struct ndmsg)));
+        return;
+    }
+
+    if(h->nlmsg_type == RTM_NEWNHTEVENT)
+    {
+        onNhtEventMsg(h, len);
         return;
     }
 
@@ -2397,6 +2409,91 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
     }
 
     return;
+}
+
+/*
+ * Handle NHT (Next-Hop Tracking) event message.
+ *
+ * The NHT event is encoded by dplane_fpm_sonic as RTM_NEWNHTEVENT with
+ * a struct rtmsg payload and a NHA_JSON_STR attribute carrying the JSON.
+ *
+ * JSON fields:
+ *   rnh_prefix            - tracked prefix (e.g. "10.0.0.1/32")
+ *   prev_resolved_prefix  - previous resolving prefix
+ *   prev_resolved_nhg_id  - previous NHG ID
+ *   curr_resolved_prefix  - current resolving prefix
+ *   curr_resolved_nhg_id  - current NHG ID
+ */
+void RouteSync::onNhtEventMsg(struct nlmsghdr *h, int len)
+{
+    struct rtmsg *rtm = (struct rtmsg *)NLMSG_DATA(h);
+    struct rtattr *tb[RTA_MAX + 1] = {};
+
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wcast-align"
+    netlink_parse_rtattr(tb, RTA_MAX, RTM_RTA(rtm), len);
+    #pragma GCC diagnostic pop
+
+    if (!tb[NHA_JSON_STR])
+    {
+        SWSS_LOG_ERROR("NHT event without JSON string attribute");
+        return;
+    }
+
+    char *json_str = (char *)RTA_DATA(tb[NHA_JSON_STR]);
+    SWSS_LOG_NOTICE("Received NHT event JSON: %s", json_str);
+
+    nlohmann::ordered_json j;
+    try
+    {
+        j = nlohmann::ordered_json::parse(json_str);
+    }
+    catch (const std::exception &e)
+    {
+        SWSS_LOG_ERROR("Failed to parse NHT event JSON: %s", e.what());
+        return;
+    }
+
+    string rnh_prefix = j.value("rnh_prefix", "");
+    string prev_resolved_prefix = j.value("prev_resolved_prefix", "");
+    uint32_t prev_resolved_nhg_id = j.value("prev_resolved_nhg_id", (uint32_t)0);
+    string curr_resolved_prefix = j.value("curr_resolved_prefix", "");
+    uint32_t curr_resolved_nhg_id = j.value("curr_resolved_nhg_id", (uint32_t)0);
+
+    if (rnh_prefix.empty())
+    {
+        SWSS_LOG_ERROR("NHT event missing rnh_prefix field");
+        return;
+    }
+
+    SWSS_LOG_NOTICE("NHT event: rnh=%s prev=%s(nhg=%u) curr=%s(nhg=%u)",
+                    rnh_prefix.c_str(),
+                    prev_resolved_prefix.c_str(), prev_resolved_nhg_id,
+                    curr_resolved_prefix.c_str(), curr_resolved_nhg_id);
+
+    /*
+     * Write NHT event to APPL_STATE_DB for debugging / downstream consumption.
+     * Key: rnh_prefix (e.g. "10.0.0.1/32")
+     */
+    std::vector<FieldValueTuple> fvs;
+    fvs.emplace_back("rnh_prefix", rnh_prefix);
+    fvs.emplace_back("prev_resolved_prefix", prev_resolved_prefix);
+    fvs.emplace_back("prev_resolved_nhg_id", to_string(prev_resolved_nhg_id));
+    fvs.emplace_back("curr_resolved_prefix", curr_resolved_prefix);
+    fvs.emplace_back("curr_resolved_nhg_id", to_string(curr_resolved_nhg_id));
+    fvs.emplace_back("json", j.dump(4));
+
+    m_nhtEventStateTable.set(rnh_prefix, fvs);
+    m_app_state_pipeline->flush();
+
+    /*
+     * Trigger NHG backwalk / forward walk if NHG FIB mode is enabled.
+     * This re-resolves all NHG entries affected by the resolution change.
+     */
+    if (m_nhgFibEnabled)
+    {
+        m_rib_fib_nhg_mgr.onNhtEvent(prev_resolved_nhg_id, curr_resolved_nhg_id);
+    }
 }
 
 /*

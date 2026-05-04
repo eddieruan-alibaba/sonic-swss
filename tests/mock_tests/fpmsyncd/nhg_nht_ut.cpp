@@ -70,24 +70,26 @@ namespace ut_fpmsyncd
 
             /* Step 1: Convert each entry's json str to fib::NextHopGroupFull */
             std::map<uint32_t, fib::NextHopGroupFull> entries;
-            for (auto& [key, val] : top_level.items()) {
-                std::string json_str = val.dump();
+            for (auto it = top_level.items().begin(); it != top_level.items().end(); ++it) {
+                std::string json_str = it.value().dump();
                 fib::NextHopGroupFull nhg;
                 EXPECT_TRUE(fib::from_json_string(json_str, nhg))
-                    << "Failed to parse NHG from json str for key: " << key;
+                    << "Failed to parse NHG from json str for key: " << it.key();
                 entries[nhg.id] = nhg;
             }
 
             /* Step 2: Topological sort — add them one by one in dependency order */
             std::set<uint32_t> added;
             std::set<uint32_t> all_ids;
-            for (auto& [id, nhg] : entries) {
-                all_ids.insert(id);
+            for (auto it = entries.begin(); it != entries.end(); ++it) {
+                all_ids.insert(it->first);
             }
 
             while (added.size() < entries.size()) {
                 bool progress = false;
-                for (auto& [id, nhg] : entries) {
+                for (auto it = entries.begin(); it != entries.end(); ++it) {
+                    uint32_t id = it->first;
+                    fib::NextHopGroupFull& nhg = it->second;
                     if (added.count(id)) continue;
                     bool deps_met = true;
                     for (uint32_t dep : nhg.depends) {

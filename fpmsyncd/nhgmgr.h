@@ -28,6 +28,21 @@ namespace swss {
     class RIBNHGEntry;
     struct SonicGateWayNHGObject;
 
+    /* Callback types for backwalk */
+    typedef bool (*fib_nhg_walk_spec_func)(RIBNHGEntry*, struct fib_nhg_walking_ctx&);
+    typedef bool (*fib_nhg_prune_spec_func)(RIBNHGEntry*, bool walk_result, struct fib_nhg_walking_ctx&);
+
+    /* Walking context for fib_nhg_back_walk */
+    struct fib_nhg_walking_ctx {
+        set<uint32_t> visited_node_set;
+        set<uint32_t> modified_node_set;
+        string nexthop_address;
+        set<string> updated_sonic_nhg_keys;
+        fib_nhg_walk_spec_func walk_spec;
+        fib_nhg_prune_spec_func prune_spec;
+        RIBNHGTable* table;
+    };
+
     /* description of sonic nexthop object creation info */
     struct SonicNHGObjectInfo {
         uint32_t id = 0;
@@ -653,6 +668,13 @@ namespace swss {
          */
         void checkNeedUpdate(NextHopGroupFull newNHG, uint8_t newAF, bool &updated, bool &updatedDependency);
 
+        string getGatewayAddress();
+        unordered_map<uint32_t, bool>& getResolvedEnableGroup();
+        void resetResolvedEnableGroup();
+        string getLastAppdbFields();
+        void setLastAppdbFields(const string& fields);
+        int regenerateFields();
+
     private:
 
         /*
@@ -773,6 +795,18 @@ namespace swss {
         SonicNHGObjectKey m_sonic_nhg_key;
 
         /*
+         * Resolved group enable/disable state per depends entry.
+         * All paths enabled on Add/Update. Disabled during backwalk.
+         * Leaf NHGs (depends.empty()) get self-reference {self_id, true}.
+         */
+        unordered_map<uint32_t, bool> m_resolved_enable_group;
+
+        /*
+         * Cached APPDB fields for compare-and-skip deduplication.
+         */
+        string m_last_appdb_fields;
+
+        /*
          * calculate FV vector fields of multi NHG entry
          */
         int getNextHopGroupFields();
@@ -861,6 +895,12 @@ namespace swss {
             m_sonic_id_manager = sonic_id_manager;
         }
 
+        void fib_nhg_back_walk(uint32_t id, fib_nhg_walking_ctx& ctx);
+
+        void addNexthopEntry(const string& nexthop, RIBNHGEntry* entry);
+        bool removeNexthopEntry(const string& nexthop, RIBNHGEntry* entry);
+        const set<RIBNHGEntry*>& getNexthopEntries(const string& nexthop) const;
+
     private:
         SonicIDMgr *m_sonic_id_manager = nullptr;
 
@@ -870,6 +910,10 @@ namespace swss {
         map<SonicNHGObjectKey, SonicNHGObjectInfo> m_created_nhg_map;
 
         ProducerStateTable m_nexthop_groupTable;
+
+        /* nexthop address -> set of RIBNHGEntry* that use this nexthop (for Part 2 VPN backwalk) */
+        map<string, set<RIBNHGEntry*>> m_nexthop_to_RIBNHG_map;
+        static const set<RIBNHGEntry*> m_empty_entry_set;
     };
 
     class NHGMgr {
@@ -918,6 +962,8 @@ namespace swss {
 
         // Not implemented
         RIBNHGEntry *getRIBNHGEntryByKey(string key);
+
+        void fib_nhg_trigger_node_quick_fixup(const string& nexthop_address, uint32_t resolved_nhg_id);
 
     private:
         DBConnector *m_db;

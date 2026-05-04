@@ -258,6 +258,7 @@ tests_fpmsyncd_SOURCES = fpmsyncd/test_fpmlink.cpp \
                          fpmsyncd/receive_srv6_steer_routes_ut.cpp \
                          fpmsyncd/receive_srv6_mysids_ut.cpp \
                          fpmsyncd/nhgmgr_ut.cpp \
+                         fpmsyncd/nhg_nht_ut.cpp \
                          fpmsyncd/ut_helpers_fpmsyncd.cpp \
                          fake_netlink.cpp \
                          fake_warmstarthelper.cpp \

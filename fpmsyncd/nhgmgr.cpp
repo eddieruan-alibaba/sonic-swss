@@ -6,6 +6,8 @@
 using namespace std;
 using namespace swss;
 
+const set<RIBNHGEntry*> RIBNHGTable::m_empty_entry_set;
+
 namespace {
 /*
  * Thread-safe SWSS logger callback function.
@@ -300,6 +302,13 @@ int NHGMgr::addNewNHGFull(NextHopGroupFull nhg, uint8_t af) {
             return ret;
         }
     }
+
+    /* Populate nexthop-to-RIBNHGEntry map for Part 2 VPN backwalk */
+    string gw = entry->getGatewayAddress();
+    if (!gw.empty() && entry->hasSonicGatewayObj()) {
+        m_rib_nhg_table->addNexthopEntry(gw, entry);
+    }
+
     return 0;
 }
 
@@ -564,6 +573,12 @@ int NHGMgr::delNHGFull(uint32_t id) {
 
     // del the sonic gateway nhg first
     if (entry->hasSonicGatewayObj()) {
+        /* Remove from nexthop-to-RIBNHGEntry map before deletion */
+        string gw = entry->getGatewayAddress();
+        if (!gw.empty()) {
+            m_rib_nhg_table->removeNexthopEntry(gw, entry);
+        }
+
         uint32_t sonicGatewayNHGObjID = entry->getSonicGatewayObjID();
         SonicGateWayNHGEntry* sonicEntry = m_sonic_nhg_table->getEntry(entry->getSonicObjType(), sonicGatewayNHGObjID);
         if (sonicEntry != nullptr && sonicEntry->getRefCount() > 1) {
@@ -760,6 +775,32 @@ uint32_t RIBNHGEntry::getRIBID() {
     return m_rib_id;
 }
 
+string RIBNHGEntry::getGatewayAddress() {
+    return m_nexthop;
+}
+
+unordered_map<uint32_t, bool>& RIBNHGEntry::getResolvedEnableGroup() {
+    return m_resolved_enable_group;
+}
+
+void RIBNHGEntry::resetResolvedEnableGroup() {
+    for (auto& kv : m_resolved_enable_group) {
+        kv.second = true;
+    }
+}
+
+string RIBNHGEntry::getLastAppdbFields() {
+    return m_last_appdb_fields;
+}
+
+void RIBNHGEntry::setLastAppdbFields(const string& fields) {
+    m_last_appdb_fields = fields;
+}
+
+int RIBNHGEntry::regenerateFields() {
+    return syncFvVector();
+}
+
 /*
  * delete RIB NHG entry by RIB ID
  */
@@ -898,6 +939,19 @@ int RIBNHGTable::writeToDB(RIBNHGEntry *entry) {
         SWSS_LOG_ERROR("Failed to sync fvVector for %d, empty fvVector", entry->getNHG().id);
         return -1;
     }
+
+    /* Compare-and-skip deduplication: avoid redundant APPDB writes on revisit */
+    string current_fields;
+    for (const auto& fv : fvVector) {
+        if (!current_fields.empty()) current_fields += "|";
+        current_fields += fvField(fv) + "=" + fvValue(fv);
+    }
+    if (current_fields == entry->getLastAppdbFields()) {
+        SWSS_LOG_DEBUG("writeToDB: skip redundant write for %d", entry->getRIBID());
+        return 0;
+    }
+    entry->setLastAppdbFields(current_fields);
+
     m_nexthop_groupTable.set(std::to_string(entry->getSonicObjID()), fvVector);
     return 0;
 }
@@ -948,6 +1002,56 @@ int RIBNHGTable::getCreatedNHGObjectID(SonicNHGObjectKey key) {
         return 0;
     }
     return m_created_nhg_map[key].id;
+}
+
+void RIBNHGTable::fib_nhg_back_walk(uint32_t id, fib_nhg_walking_ctx& ctx) {
+    RIBNHGEntry* entry = getEntry(id);
+    if (!entry) {
+        SWSS_LOG_WARN("fib_nhg_back_walk: entry %d not found", id);
+        return;
+    }
+
+    /* Add to visited set (debugging/audit only, never skip on revisit) */
+    ctx.visited_node_set.insert(id);
+
+    /* Execute walk_spec */
+    bool walk_result = ctx.walk_spec(entry, ctx);
+
+    /* Execute prune_spec */
+    bool prune = ctx.prune_spec(entry, walk_result, ctx);
+    if (prune) {
+        return;
+    }
+
+    /* Recurse into dependents */
+    set<uint32_t> dependents = entry->getDependentsID();
+    for (uint32_t dep_id : dependents) {
+        fib_nhg_back_walk(dep_id, ctx);
+    }
+}
+
+void RIBNHGTable::addNexthopEntry(const string& nexthop, RIBNHGEntry* entry) {
+    m_nexthop_to_RIBNHG_map[nexthop].insert(entry);
+}
+
+bool RIBNHGTable::removeNexthopEntry(const string& nexthop, RIBNHGEntry* entry) {
+    auto it = m_nexthop_to_RIBNHG_map.find(nexthop);
+    if (it == m_nexthop_to_RIBNHG_map.end()) {
+        return false;
+    }
+    it->second.erase(entry);
+    if (it->second.empty()) {
+        m_nexthop_to_RIBNHG_map.erase(it);
+    }
+    return true;
+}
+
+const set<RIBNHGEntry*>& RIBNHGTable::getNexthopEntries(const string& nexthop) const {
+    auto it = m_nexthop_to_RIBNHG_map.find(nexthop);
+    if (it == m_nexthop_to_RIBNHG_map.end()) {
+        return m_empty_entry_set;
+    }
+    return it->second;
 }
 
 RIBNHGEntry::RIBNHGEntry(RIBNHGTable *table) : m_table(table) {
@@ -1109,6 +1213,17 @@ int RIBNHGEntry::setEntry(NextHopGroupFull nhg, uint8_t af) {
         return -1;
     }
 
+    /* Initialize m_resolved_enable_group: all paths enabled on Add/Update */
+    m_resolved_enable_group.clear();
+    if (m_depends.empty()) {
+        /* Leaf NHG: self-reference */
+        m_resolved_enable_group[m_rib_id] = true;
+    } else {
+        for (auto dep : m_depends) {
+            m_resolved_enable_group[dep] = true;
+        }
+    }
+
     // sync fv vector
     if (this->syncFvVector() != 0) {
         SWSS_LOG_ERROR("Failed to sync fv vector for %d", nhg.id);
@@ -1210,6 +1325,13 @@ int RIBNHGEntry::getNextHopGroupFields() {
     for (const auto &nh: m_resolvedGroup) {
         uint32_t id = nh.first;
         string weight = to_string(nh.second);
+
+        /* Skip disabled entries during backwalk */
+        auto enableIt = m_resolved_enable_group.find(id);
+        if (enableIt != m_resolved_enable_group.end() && !enableIt->second) {
+            continue;
+        }
+
         if (!m_table->isNHGExist(id)) {
             SWSS_LOG_ERROR("NextHop group is incomplete: %d", id);
             return -1;
@@ -1937,4 +2059,285 @@ int SonicNHGObjectKey::createSonicGateWayNHGObjectKey(RIBNHGEntry *entry, SonicN
     }
     key_out = createSonicGateWayNHGObjectKey(obj);
     return 0;
+}
+
+/*
+ * ============================================================
+ * NHT Backwalk: Walk/Prune Spec Implementations
+ * ============================================================
+ */
+
+/*
+ * Helper: check if all m_resolved_enable_group entries of a depends entry are false
+ */
+static bool isAllDisabled(RIBNHGEntry* dep_entry) {
+    auto& enable_group = dep_entry->getResolvedEnableGroup();
+    for (const auto& kv : enable_group) {
+        if (kv.second) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/*
+ * Part 1: Walk spec for node quick fixup
+ *
+ * Following the LLD flowchart:
+ * 1. Visit-for-State: propagate disabled state from depends
+ * 2. Check gateway match or modified_node_set relevance
+ * 3. Regenerate fields and write to APPDB
+ */
+bool fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_walking_ctx& ctx) {
+    uint32_t entry_id = entry->getRIBID();
+    set<uint32_t> depends = entry->getDependsID();
+    auto& enable_group = entry->getResolvedEnableGroup();
+
+    /* Step 1: Visit-for-State — for each depends entry, if ALL its
+     * m_resolved_enable_group entries are false, mark that depends
+     * as disabled in current node's enable_group */
+    for (uint32_t dep_id : depends) {
+        RIBNHGEntry* dep_entry = ctx.table->getEntry(dep_id);
+        if (dep_entry && isAllDisabled(dep_entry)) {
+            enable_group[dep_id] = false;
+        }
+    }
+
+    bool is_relevant = false;
+
+    /* Step 2: Relevance check — gateway match */
+    string gateway = entry->getGatewayAddress();
+    if (!gateway.empty() && gateway == ctx.nexthop_address) {
+        if (depends.empty()) {
+            /* Leaf NHG: mark self-reference disabled, skip APPDB write */
+            enable_group[entry_id] = false;
+            ctx.modified_node_set.insert(entry_id);
+            SWSS_LOG_NOTICE("walk_spec: leaf node %d gateway match, disabled self", entry_id);
+            return true;
+        } else {
+            /* Non-leaf with gateway match: mark ALL depends disabled */
+            for (auto& kv : enable_group) {
+                kv.second = false;
+            }
+            is_relevant = true;
+        }
+    }
+
+    /* Check if any depends entry appears in modified_node_set */
+    if (!is_relevant) {
+        for (uint32_t dep_id : depends) {
+            if (ctx.modified_node_set.count(dep_id)) {
+                is_relevant = true;
+                break;
+            }
+        }
+    }
+
+    if (!is_relevant) {
+        return false;
+    }
+
+    /* Step 3: Check if all paths are disabled */
+    bool all_disabled = true;
+    for (const auto& kv : enable_group) {
+        if (kv.second) {
+            all_disabled = false;
+            break;
+        }
+    }
+
+    ctx.modified_node_set.insert(entry_id);
+
+    if (all_disabled) {
+        SWSS_LOG_NOTICE("walk_spec: node %d all paths disabled, skip APPDB write", entry_id);
+        return true;
+    }
+
+    /* Step 4: Regenerate and write to APPDB */
+    if (entry->regenerateFields() != 0) {
+        SWSS_LOG_ERROR("walk_spec: node %d regenerateFields failed", entry_id);
+        return true;
+    }
+    ctx.table->writeToDB(entry);
+    SWSS_LOG_NOTICE("walk_spec: node %d regenerated and written to APPDB", entry_id);
+    return true;
+}
+
+/*
+ * Part 1: Prune spec for node quick fixup
+ *
+ * Rules:
+ * - ECMP (depends >= 2) + not matched → don't prune
+ * - not modified → prune
+ * - modified → don't prune
+ */
+bool fib_nhg_prune_spec_for_node_quick_fixup(RIBNHGEntry* entry, bool walk_result, fib_nhg_walking_ctx& ctx) {
+    set<uint32_t> depends = entry->getDependsID();
+
+    /* ECMP nodes with walk_result=false are never pruned */
+    if (depends.size() >= 2 && !walk_result) {
+        return false;
+    }
+
+    /* Not modified → prune */
+    if (!walk_result) {
+        return true;
+    }
+
+    /* Modified → continue */
+    return false;
+}
+
+/*
+ * Part 2: Walk spec for sonic NHG quick fixup
+ *
+ * Same structure as Part 1, but only modifies SONiC NHG representation.
+ * Dedup via updated_sonic_nhg_keys in ctx.
+ */
+bool fib_nhg_walk_spec_for_node_quick_fixup_sonic_nhg(RIBNHGEntry* entry, fib_nhg_walking_ctx& ctx) {
+    uint32_t entry_id = entry->getRIBID();
+
+    /* Check dedup: if SONiC NHG key already updated, skip */
+    string key_str = to_string(entry->getSonicObjID());
+    if (ctx.updated_sonic_nhg_keys.count(key_str)) {
+        return false;
+    }
+
+    set<uint32_t> depends = entry->getDependsID();
+    auto& enable_group = entry->getResolvedEnableGroup();
+
+    /* Visit-for-State */
+    for (uint32_t dep_id : depends) {
+        RIBNHGEntry* dep_entry = ctx.table->getEntry(dep_id);
+        if (dep_entry && isAllDisabled(dep_entry)) {
+            enable_group[dep_id] = false;
+        }
+    }
+
+    bool is_relevant = false;
+
+    /* Check gateway match */
+    string gateway = entry->getGatewayAddress();
+    if (!gateway.empty() && gateway == ctx.nexthop_address) {
+        if (depends.empty()) {
+            enable_group[entry_id] = false;
+            ctx.modified_node_set.insert(entry_id);
+            ctx.updated_sonic_nhg_keys.insert(key_str);
+            SWSS_LOG_NOTICE("walk_spec_sonic_nhg: leaf node %d gateway match, disabled self", entry_id);
+            return true;
+        } else {
+            for (auto& kv : enable_group) {
+                kv.second = false;
+            }
+            is_relevant = true;
+        }
+    }
+
+    /* Check if any depends entry appears in modified_node_set */
+    if (!is_relevant) {
+        for (uint32_t dep_id : depends) {
+            if (ctx.modified_node_set.count(dep_id)) {
+                is_relevant = true;
+                break;
+            }
+        }
+    }
+
+    if (!is_relevant) {
+        return false;
+    }
+
+    /* Check if all paths disabled */
+    bool all_disabled = true;
+    for (const auto& kv : enable_group) {
+        if (kv.second) {
+            all_disabled = false;
+            break;
+        }
+    }
+
+    ctx.modified_node_set.insert(entry_id);
+    ctx.updated_sonic_nhg_keys.insert(key_str);
+
+    if (all_disabled) {
+        SWSS_LOG_NOTICE("walk_spec_sonic_nhg: node %d all paths disabled, skip APPDB write", entry_id);
+        return true;
+    }
+
+    /* Regenerate and write to APPDB */
+    if (entry->regenerateFields() != 0) {
+        SWSS_LOG_ERROR("walk_spec_sonic_nhg: node %d regenerateFields failed", entry_id);
+        return true;
+    }
+    ctx.table->writeToDB(entry);
+    SWSS_LOG_NOTICE("walk_spec_sonic_nhg: node %d regenerated and written to APPDB", entry_id);
+    return true;
+}
+
+/*
+ * Part 2: Prune spec for sonic NHG quick fixup
+ * Mirrors Part 1 prune spec.
+ */
+bool fib_nhg_prune_spec_for_node_quick_fixup_sonic_nhg(RIBNHGEntry* entry, bool walk_result, fib_nhg_walking_ctx& ctx) {
+    set<uint32_t> depends = entry->getDependsID();
+
+    if (depends.size() >= 2 && !walk_result) {
+        return false;
+    }
+    if (!walk_result) {
+        return true;
+    }
+    return false;
+}
+
+/*
+ * NHGMgr::fib_nhg_trigger_node_quick_fixup()
+ *
+ * Entry point for NHT event handling.
+ * Part 1: Global table context backwalk from resolved_nhg_id
+ * Part 2: VPN context backwalk via m_nexthop_to_RIBNHG_map
+ */
+void NHGMgr::fib_nhg_trigger_node_quick_fixup(const string& nexthop_address, uint32_t resolved_nhg_id) {
+    SWSS_LOG_NOTICE("fib_nhg_trigger_node_quick_fixup: nexthop=%s resolved_nhg_id=%d",
+                    nexthop_address.c_str(), resolved_nhg_id);
+
+    /* Part 1: Global Table Context */
+    fib_nhg_walking_ctx ctx;
+    ctx.nexthop_address = nexthop_address;
+    ctx.walk_spec = fib_nhg_walk_spec_for_node_quick_fixup;
+    ctx.prune_spec = fib_nhg_prune_spec_for_node_quick_fixup;
+    ctx.table = m_rib_nhg_table;
+
+    /* Caller-level bypass: evaluate walk_spec on starting node but never prune */
+    RIBNHGEntry* entry = m_rib_nhg_table->getEntry(resolved_nhg_id);
+    if (!entry) {
+        SWSS_LOG_WARN("fib_nhg_trigger_node_quick_fixup: resolved_nhg_id %d not found", resolved_nhg_id);
+        return;
+    }
+
+    ctx.walk_spec(entry, ctx);
+    /* Never prune starting node — always recurse into dependents */
+
+    set<uint32_t> dependents = entry->getDependentsID();
+    for (uint32_t dep_id : dependents) {
+        m_rib_nhg_table->fib_nhg_back_walk(dep_id, ctx);
+    }
+
+    SWSS_LOG_NOTICE("fib_nhg_trigger_node_quick_fixup: Part 1 done, visited %zu nodes, modified %zu nodes",
+                    ctx.visited_node_set.size(), ctx.modified_node_set.size());
+
+    /* Part 2: VPN Context */
+    const set<RIBNHGEntry*>& vpn_entries = m_rib_nhg_table->getNexthopEntries(nexthop_address);
+    for (RIBNHGEntry* vpn_entry : vpn_entries) {
+        fib_nhg_walking_ctx ctx2;
+        ctx2.nexthop_address = nexthop_address;
+        ctx2.walk_spec = fib_nhg_walk_spec_for_node_quick_fixup_sonic_nhg;
+        ctx2.prune_spec = fib_nhg_prune_spec_for_node_quick_fixup_sonic_nhg;
+        ctx2.table = m_rib_nhg_table;
+
+        m_rib_nhg_table->fib_nhg_back_walk(vpn_entry->getRIBID(), ctx2);
+
+        SWSS_LOG_NOTICE("fib_nhg_trigger_node_quick_fixup: Part 2 VPN entry %d done, visited %zu, modified %zu",
+                        vpn_entry->getRIBID(), ctx2.visited_node_set.size(), ctx2.modified_node_set.size());
+    }
 }

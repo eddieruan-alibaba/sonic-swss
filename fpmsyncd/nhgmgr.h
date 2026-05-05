@@ -702,6 +702,11 @@ namespace swss {
         string m_nexthop = "";
 
         /*
+         * Gateway  str in FV vector of the entry
+         */
+        string m_gateway = "";
+
+        /*
          * Interface name str in FV vector of the entry
          */
         string m_ifName = "";

@@ -145,7 +145,7 @@ static bool compareNHGFullList(const NextHopGroupFull *newNHG, const NextHopGrou
 /*
  * Function used to get the remove and add set of NHG dependency
  */
-static void diffDependency(set<uint32_t> oldSet, set<uint32_t> newSet, set<uint32_t> &outAddSet,
+void diffDependency(set<uint32_t> oldSet, set<uint32_t> newSet, set<uint32_t> &outAddSet,
                                  set<uint32_t> &outRemoveSet) {
     for (auto it = oldSet.begin(); it != oldSet.end(); it++) {
         if (newSet.find(*it) == newSet.end()) {
@@ -612,6 +612,15 @@ void NHGMgr::dumpNHGGroupFull(fib::NextHopGroupFull nhg) {
     for (auto it = nhg.nh_grp_full_list.begin(); it != nhg.nh_grp_full_list.end(); it++) {
         SWSS_LOG_DEBUG("   group member %d, num_direct %d", it->id, it->num_direct);
     }
+
+    for (auto it = nhg.depends.begin(); it != nhg.depends.end(); it++) {
+        SWSS_LOG_DEBUG("   depend %d, ", *it);
+    }
+
+    for (auto it = nhg.dependents.begin(); it != nhg.dependents.end(); it++) {
+        SWSS_LOG_DEBUG("   dependent %d, ", *it);
+    }
+
     if (nhg.nh_srv6 != nullptr && nhg.nh_srv6->seg6_segs != nullptr){
         char seg_str[INET6_ADDRSTRLEN] = {0};
         inet_ntop(AF_INET6, &nhg.nh_srv6->seg6_segs->seg[0], seg_str, INET6_ADDRSTRLEN);
@@ -776,7 +785,7 @@ uint32_t RIBNHGEntry::getRIBID() {
 }
 
 string RIBNHGEntry::getGatewayAddress() {
-    return m_nexthop;
+    return m_gateway;
 }
 
 unordered_map<uint32_t, bool>& RIBNHGEntry::getResolvedEnableGroup() {
@@ -844,10 +853,6 @@ int RIBNHGTable::addEntry(NextHopGroupFull nhg, uint8_t af) {
         return -1;
     }
 
-    if (addNHGDependents(entry->getDependsID(), entry->getRIBID()) != 0) {
-        return -1;
-    }
-
     m_nhg_map.insert(std::make_pair(nhg.id, entry));
     return 0;
 }
@@ -879,15 +884,6 @@ int RIBNHGTable::updateEntry(NextHopGroupFull nhg, uint8_t af, bool &updated) {
         }
     }
 
-    // update dependency
-    if (updatedDependency) {
-        set<uint32_t> addSet, removeSet;
-        diffDependency(previousDepends, entry->getDependsID(), addSet, removeSet);
-        if (addNHGDependents(addSet, entry->getRIBID()) != 0) {
-            return -1;
-        }
-        removeNHGDependents(removeSet, entry->getRIBID());
-    }
     return 0;
 }
 
@@ -1176,19 +1172,21 @@ int RIBNHGEntry::setEntry(NextHopGroupFull nhg, uint8_t af) {
     m_af = af;
     m_group.clear();
     m_depends.clear();
+    m_dependents.clear();
+    m_gateway.clear();
     m_resolvedGroup.clear();
 
     // check the depends NHG entry and update m_depends set
     for (auto it = nhg.depends.begin(); it != nhg.depends.end(); it++) {
-        // validate group member
-        if (!m_table->isNHGExist(*it)) {
-            SWSS_LOG_ERROR("NextHop id %d in group not found.", *it);
-            return -1;
-        }
         m_depends.insert(*it);
         SWSS_LOG_DEBUG("NextHop id %d add depends %d.", m_rib_id, *it);
     }
 
+    // check the dependents NHG entry and update m_dependents set
+    for (auto it = nhg.dependents.begin(); it != nhg.dependents.end(); it++) {
+        m_dependents.insert(*it);
+        SWSS_LOG_DEBUG("NextHop id %d add dependentss %d.", m_rib_id, *it);
+    }
 
     // check the full list NHG entry and update m_group set
     for (auto it = nhg.nh_grp_full_list.begin(); it != nhg.nh_grp_full_list.end(); it++) {
@@ -1199,6 +1197,12 @@ int RIBNHGEntry::setEntry(NextHopGroupFull nhg, uint8_t af) {
         }
         m_group.insert(std::make_pair(it->id, it->weight));
         SWSS_LOG_DEBUG("NextHop id %d add group %d.", m_rib_id, it->id);
+    }
+
+    if (nhg.type == fib::NEXTHOP_TYPE_IPV6 || nhg.type == fib::NEXTHOP_TYPE_IPV6_IFINDEX ||
+        nhg.type == fib::NEXTHOP_TYPE_IPV4 || nhg.type == fib::NEXTHOP_TYPE_IPV4_IFINDEX) {
+        m_gateway = gaddr_to_string(nhg.gate, nhg.type);
+        SWSS_LOG_DEBUG("gateway address: %s", m_gateway.c_str());
     }
 
     /*
@@ -1578,11 +1582,7 @@ void RIBNHGEntry::checkNeedCreateSonicNHGObj() {
             m_table->addSonicNHGObjectRef(m_sonic_nhg_key);
         }
     }else{
-        if (m_is_single == true){
-            m_create_sonic_nhg_obj = false;
-        } else{
-            m_create_sonic_nhg_obj = true;
-        }
+
     }
 }
 
@@ -2112,7 +2112,7 @@ bool fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_walking_
             /* Leaf NHG: mark self-reference disabled, skip APPDB write */
             enable_group[entry_id] = false;
             ctx.modified_node_set.insert(entry_id);
-            SWSS_LOG_NOTICE("walk_spec: leaf node %d gateway match, disabled self", entry_id);
+            SWSS_LOG_DEBUG("walk_spec: leaf node %d gateway match, disabled self", entry_id);
             return true;
         } else {
             /* Non-leaf with gateway match: mark ALL depends disabled */
@@ -2132,7 +2132,7 @@ bool fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_walking_
             }
         }
     }
-
+     SWSS_LOG_DEBUG("walk_spec: node %d is relevant %d, gateway %s", entry_id, (int)is_relevant, gateway.c_str());
     if (!is_relevant) {
         return false;
     }
@@ -2149,7 +2149,7 @@ bool fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_walking_
     ctx.modified_node_set.insert(entry_id);
 
     if (all_disabled) {
-        SWSS_LOG_NOTICE("walk_spec: node %d all paths disabled, skip APPDB write", entry_id);
+        SWSS_LOG_DEBUG("walk_spec: node %d all paths disabled, skip APPDB write", entry_id);
         return true;
     }
 
@@ -2159,7 +2159,7 @@ bool fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_walking_
         return true;
     }
     ctx.table->writeToDB(entry);
-    SWSS_LOG_NOTICE("walk_spec: node %d regenerated and written to APPDB", entry_id);
+    SWSS_LOG_DEBUG("walk_spec: node %d regenerated and written to APPDB", entry_id);
     return true;
 }
 

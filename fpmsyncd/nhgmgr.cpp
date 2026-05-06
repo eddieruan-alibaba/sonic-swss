@@ -807,6 +807,11 @@ void RIBNHGEntry::setLastAppdbFields(const string& fields) {
 }
 
 int RIBNHGEntry::regenerateFields() {
+    /* get resolved group from nhg full */
+    if(getResolvedGroupFromNHGFull()!=0){
+        SWSS_LOG_ERROR("Failed to get resolved group from nhg full");
+        return -1;
+    }
     return syncFvVector();
 }
 
@@ -1211,12 +1216,6 @@ int RIBNHGEntry::setEntry(NextHopGroupFull nhg, uint8_t af) {
      * */
     checkNeedCreateSonicGatewayNHGObj();
 
-    /* get resolved group from nhg full */
-    if(getResolvedGroupFromNHGFull()!=0){
-        SWSS_LOG_ERROR("Failed to get resolved group from nhg full");
-        return -1;
-    }
-
     /* Initialize m_resolved_enable_group: all paths enabled on Add/Update */
     m_resolved_enable_group.clear();
     if (m_depends.empty()) {
@@ -1227,6 +1226,13 @@ int RIBNHGEntry::setEntry(NextHopGroupFull nhg, uint8_t af) {
             m_resolved_enable_group[dep] = true;
         }
     }
+
+    /* get resolved group from nhg full */
+    if(getResolvedGroupFromNHGFull()!=0){
+        SWSS_LOG_ERROR("Failed to get resolved group from nhg full");
+        return -1;
+    }
+
 
     // sync fv vector
     if (this->syncFvVector() != 0) {
@@ -1430,12 +1436,76 @@ int RIBNHGEntry::getNextHopFields() {
  */
 int RIBNHGEntry::getResolvedGroupFromNHGFull() {
     if (m_sonic_obj_type == SONIC_NHG_OBJ_TYPE_NHG_NORMAL) {
-        for (auto nhg: m_nhg.nh_grp_full_list) {
-            if (nhg.num_direct == 0) {
-                m_resolvedGroup.insert(std::make_pair(nhg.id, nhg.weight));
-                SWSS_LOG_DEBUG("NextHop id %d add resolved group %d.", m_rib_id, nhg.id);
+        uint32_t pending_inserts = 0;
+        bool in_pending_mode = false;
+
+        for (const auto& nhg : m_nhg.nh_grp_full_list) {
+            if (nhg.num_direct > 0) {
+                // === MARKER GROUP (num_direct > 0) ===
+                auto it = m_resolved_enable_group.find(nhg.id);
+                bool marker_enabled = (it != m_resolved_enable_group.end() && it->second);
+                
+                if (marker_enabled) {
+                    if (!in_pending_mode) {
+                        // First enabled marker: initialize allowance
+                        pending_inserts = nhg.num_direct;
+                        in_pending_mode = true;
+                        SWSS_LOG_DEBUG("Marker %d ENABLED. Allow next %u entries.", nhg.id, pending_inserts);
+                    } else {
+                        // Nested marker: consumption semantics (-1 for the marker slot itself)
+                        pending_inserts = pending_inserts + nhg.num_direct - 1;
+                        SWSS_LOG_DEBUG("Nested marker %d. Updated pending: %u", nhg.id, pending_inserts);
+                    }
+                } else {
+                    SWSS_LOG_DEBUG("Marker %d DISABLED or not found. No allowance granted.", nhg.id);
+                }
+                continue; // Markers are never inserted into m_resolvedGroup
+            }
+
+            // === REGULAR ENTRY (num_direct == 0) ===
+            bool should_insert = false;
+            
+            if (!in_pending_mode) {
+                // Default mode: insert ONLY if entry is explicitly enabled
+                auto it = m_resolved_enable_group.find(nhg.id);
+                bool entry_enabled = (it != m_resolved_enable_group.end() && it->second);
+                if (entry_enabled) {
+                    should_insert = true;
+                    SWSS_LOG_DEBUG("Entry %d: default mode + enabled → insert", nhg.id);
+                } else {
+                    SWSS_LOG_DEBUG("Entry %d: default mode but NOT enabled → skip", nhg.id);
+                }
+            } else {
+                // Pending mode: insert if slots available (NO per-entry enable check)
+                if (pending_inserts > 0) {
+                    should_insert = true;
+                    SWSS_LOG_DEBUG("Entry %d: pending mode + slots available → insert", nhg.id);
+                } else {
+                    SWSS_LOG_DEBUG("Entry %d: pending mode but no slots → skip", nhg.id);
+                }
+            }
+            
+            // Insert if decision allows
+            if (should_insert) {
+                m_resolvedGroup.emplace(nhg.id, nhg.weight);
+                SWSS_LOG_DEBUG("Inserted group %d (weight %d)", nhg.id, nhg.weight);
+            }
+            
+            // === CRITICAL: Consume pending slot if in pending mode ===
+            // This runs REGARDLESS of should_insert — every regular entry consumes a slot
+            if (in_pending_mode) {
+                if (pending_inserts > 0) {
+                    pending_inserts--;
+                    SWSS_LOG_DEBUG("Consumed slot for entry %d. Remaining pending: %u", nhg.id, pending_inserts);
+                }
+                // Exit pending mode when allowance is exhausted
+                if (pending_inserts == 0) {
+                    in_pending_mode = false;
+                    SWSS_LOG_DEBUG("Pending allowance exhausted. Exiting pending mode.");
+                }
             }
         }
+
         if(m_resolvedGroup.size() == 0){
             m_is_single = true;
         } else if (m_resolvedGroup.size() == 1){

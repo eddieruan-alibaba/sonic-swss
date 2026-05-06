@@ -1479,9 +1479,9 @@ int RIBNHGEntry::getResolvedGroupFromNHGFull() {
                 // Pending mode: insert if slots available (NO per-entry enable check)
                 if (pending_inserts > 0) {
                     should_insert = true;
-                    SWSS_LOG_DEBUG("Entry %d: pending mode + slots available → insert", nhg.id, this->getRIBID());
+                    SWSS_LOG_DEBUG("Entry %d: pending mode + slots available → insert to %u", nhg.id, this->getRIBID());
                 } else {
-                    SWSS_LOG_DEBUG("Entry %d: pending mode but no slots → skip", nhg.id, this->getRIBID());
+                    SWSS_LOG_DEBUG("Entry %d: pending mode but no slots → skip for %u", nhg.id, this->getRIBID());
                 }
             }
             
@@ -1513,7 +1513,7 @@ int RIBNHGEntry::getResolvedGroupFromNHGFull() {
         } else{
             m_is_single = false;
         }
-        SWSS_LOG_DEBUG("Worked on NHG %u 's resolved group, size %ld", this->getRIBID(), m_resolvedGroup.size())
+        SWSS_LOG_DEBUG("Worked on NHG %u 's resolved group, size %ld", this->getRIBID(), m_resolvedGroup.size());
     } else if (m_sonic_obj_type == SONIC_NHG_OBJ_TYPE_NHG_SRV6_GATEWAY) {
         for (auto nhg: m_nhg.nh_grp_full_list){
             RIBNHGEntry *entry = m_table->getEntry(nhg.id);

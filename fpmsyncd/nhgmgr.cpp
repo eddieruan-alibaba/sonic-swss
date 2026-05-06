@@ -1471,24 +1471,24 @@ int RIBNHGEntry::getResolvedGroupFromNHGFull() {
                 bool entry_enabled = (it != m_resolved_enable_group.end() && it->second);
                 if (entry_enabled) {
                     should_insert = true;
-                    SWSS_LOG_DEBUG("Entry %d: default mode + enabled → insert", nhg.id);
+                    SWSS_LOG_DEBUG("Entry %d: default mode + enabled → insert to %u", nhg.id, this->getRIBID());
                 } else {
-                    SWSS_LOG_DEBUG("Entry %d: default mode but NOT enabled → skip", nhg.id);
+                    SWSS_LOG_DEBUG("Entry %d: default mode but NOT enabled → skip for %u", nhg.id, this->getRIBID());
                 }
             } else {
                 // Pending mode: insert if slots available (NO per-entry enable check)
                 if (pending_inserts > 0) {
                     should_insert = true;
-                    SWSS_LOG_DEBUG("Entry %d: pending mode + slots available → insert", nhg.id);
+                    SWSS_LOG_DEBUG("Entry %d: pending mode + slots available → insert", nhg.id, this->getRIBID());
                 } else {
-                    SWSS_LOG_DEBUG("Entry %d: pending mode but no slots → skip", nhg.id);
+                    SWSS_LOG_DEBUG("Entry %d: pending mode but no slots → skip", nhg.id, this->getRIBID());
                 }
             }
             
             // Insert if decision allows
             if (should_insert) {
                 m_resolvedGroup.emplace(nhg.id, nhg.weight);
-                SWSS_LOG_DEBUG("Inserted group %d (weight %d)", nhg.id, nhg.weight);
+                SWSS_LOG_DEBUG("Inserted group %d (weight %d) for %u", nhg.id, nhg.weight, this->getRIBID());
             }
             
             // === CRITICAL: Consume pending slot if in pending mode ===
@@ -1513,6 +1513,7 @@ int RIBNHGEntry::getResolvedGroupFromNHGFull() {
         } else{
             m_is_single = false;
         }
+        SWSS_LOG_DEBUG("Worked on NHG %u 's resolved group, size %ld", this->getRIBID(), m_resolvedGroup.size())
     } else if (m_sonic_obj_type == SONIC_NHG_OBJ_TYPE_NHG_SRV6_GATEWAY) {
         for (auto nhg: m_nhg.nh_grp_full_list){
             RIBNHGEntry *entry = m_table->getEntry(nhg.id);
@@ -1528,6 +1529,7 @@ int RIBNHGEntry::getResolvedGroupFromNHGFull() {
              * SRv6 VPN already create NHG and PIC objects
              */
             m_is_single = false;
+            SWSS_LOG_DEBUG("Worked on SRv6 NHG %u 's resolved group, size %ld", this->getRIBID(), m_resolvedGroup.size())
         }
     }
 

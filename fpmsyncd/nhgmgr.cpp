@@ -1529,7 +1529,7 @@ int RIBNHGEntry::getResolvedGroupFromNHGFull() {
              * SRv6 VPN already create NHG and PIC objects
              */
             m_is_single = false;
-            SWSS_LOG_DEBUG("Worked on SRv6 NHG %u 's resolved group, size %ld", this->getRIBID(), m_resolvedGroup.size())
+            SWSS_LOG_DEBUG("Worked on SRv6 NHG %u 's resolved group, size %ld", this->getRIBID(), m_resolvedGroup.size());
         }
     }
 

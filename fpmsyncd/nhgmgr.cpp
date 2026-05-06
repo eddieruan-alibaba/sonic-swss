@@ -1654,7 +1654,11 @@ void RIBNHGEntry::checkNeedCreateSonicNHGObj() {
             m_table->addSonicNHGObjectRef(m_sonic_nhg_key);
         }
     }else{
-
+        if (m_is_single == true){
+            m_create_sonic_nhg_obj = false;
+        } else{
+            m_create_sonic_nhg_obj = true;
+        }
     }
 }
 

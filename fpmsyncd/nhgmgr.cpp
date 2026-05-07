@@ -953,6 +953,8 @@ int RIBNHGTable::writeToDB(RIBNHGEntry *entry) {
     }
     entry->setLastAppdbFields(current_fields);
 
+    SWSS_LOG_DEBUG("writeToDB: write for %d sonic id %d, value %s", entry->getRIBID(), entry->getSonicObjID(), current_fields.c_str());
+
     m_nexthop_groupTable.set(std::to_string(entry->getSonicObjID()), fvVector);
     return 0;
 }

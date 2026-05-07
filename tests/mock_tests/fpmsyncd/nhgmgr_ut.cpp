@@ -15,6 +15,8 @@
 #include "nhgmgr.h"
 #undef private
 
+#include "logger.h"
+
 using namespace swss;
 using namespace testing;
 
@@ -150,7 +152,7 @@ namespace ut_fpmsyncd
 
         vector<uint32_t> dependsB = { ribIDB1, ribIDB2 };
         vector<uint32_t> dependentsB = { ribIDA };
-        vector<uint32_t> dependsA = { ribIDB, ribIDC };
+        vector<uint32_t> dependsA = { ribIDB, ribIDB1, ribIDB2, ribIDC };
         map<uint32_t, NextHopGroupFull> nhgFullB = {
             { ribIDB1, nhgObjB1 },
             { ribIDB2, nhgObjB2 }
@@ -263,7 +265,7 @@ namespace ut_fpmsyncd
 
         vector<uint32_t> dependsB = { ribIDB1, ribIDB2 };
         vector<uint32_t> dependentsB = { ribIDA };
-        vector<uint32_t> dependsA = { ribIDB, ribIDC };
+        vector<uint32_t> dependsA = { ribIDB, ribIDB1, ribIDB2, ribIDC };
         map<uint32_t, NextHopGroupFull> nhgFullB = {
             { ribIDB1, nhgObjB1 },
             { ribIDB2, nhgObjB2 }
@@ -422,7 +424,7 @@ namespace ut_fpmsyncd
 
         vector<uint32_t> dependsB = { ribIDB1, ribIDB2 };
         vector<uint32_t> dependentsB = { ribIDA };
-        vector<uint32_t> dependsA = { ribIDB, ribIDC };
+        vector<uint32_t> dependsA = { ribIDB, ribIDB1, ribIDB2, ribIDC };
         map<uint32_t, NextHopGroupFull> nhgFullB = {
             { ribIDB1, nhgObjB1 },
             { ribIDB2, nhgObjB2 }
@@ -494,7 +496,7 @@ namespace ut_fpmsyncd
 
         /* Update the NHG A -> B, B1, B2 */
 
-        dependsA = { ribIDB };
+        dependsA = { ribIDB, ribIDB1, ribIDB2 };
         nhgFullA = {
             { ribIDB, nhgObjB },
             { ribIDB1, nhgObjB1 },
@@ -562,7 +564,7 @@ namespace ut_fpmsyncd
 
         vector<uint32_t> dependsB = { ribIDB1, ribIDB2 };
         vector<uint32_t> dependentsB = { ribIDA };
-        vector<uint32_t> dependsA = { ribIDB, ribIDC };
+        vector<uint32_t> dependsA = { ribIDB, ribIDB1, ribIDB2, ribIDC };
         map<uint32_t, NextHopGroupFull> nhgFullB = {
             { ribIDB1, nhgObjB1 },
             { ribIDB2, nhgObjB2 }
@@ -634,7 +636,7 @@ namespace ut_fpmsyncd
 
         /* Update the NHG A -> B, B1, B2 */
 
-        dependsA = { ribIDB };
+        dependsA = { ribIDB, ribIDB1, ribIDB2 };
         nhgFullA = {
             { ribIDB, nhgObjB },
             { ribIDB1, nhgObjB1 },

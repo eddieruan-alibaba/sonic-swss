@@ -558,7 +558,7 @@ int NHGMgr::updateSonicGatewayNHGObject(RIBNHGEntry *entry, uint32_t previousSon
  */
 int NHGMgr::delNHGFull(uint32_t id) {
 
-    SWSS_LOG_NOTICE("Del NextHop group id %d", id);
+    SWSS_LOG_NOTICE("delNHGFull: Del NextHop group id %d", id);
 
     if (!m_rib_nhg_table->isNHGExist(id)) {
         SWSS_LOG_ERROR("NextHop group id %d not found.", id);
@@ -953,7 +953,9 @@ int RIBNHGTable::writeToDB(RIBNHGEntry *entry) {
     }
     entry->setLastAppdbFields(current_fields);
 
-    SWSS_LOG_NOTICE("writeToDB: write for %d sonic id %d, value %s", entry->getRIBID(), entry->getSonicObjID(), current_fields.c_str());
+    SWSS_LOG_NOTICE("writeToDB: write for %d sonic id %d, value %s, m_is_single %d m_sonic_obj_type %d", 
+                entry->getRIBID(), entry->getSonicObjID(), 
+                current_fields.c_str(), (int)entry->m_is_single, entry->m_sonic_obj_type);
 
     m_nexthop_groupTable.set(std::to_string(entry->getSonicObjID()), fvVector);
     return 0;
@@ -1555,7 +1557,7 @@ void RIBNHGEntry::checkNeedCreateSonicGatewayNHGObj() {
         if (entry->hasSonicGatewayObj()) {
             m_sonic_obj_type = entry->getSonicObjType();
             m_has_sonic_gateway_obj = true;
-            SWSS_LOG_DEBUG("NextHop id %d has sonic gateway obj, is multi nexthop group.", it->first);
+            SWSS_LOG_NOTICE("NextHop id %d has sonic gateway obj, is multi nexthop group.", it->first);
             return;
         }
     }
@@ -1568,7 +1570,7 @@ void RIBNHGEntry::checkNeedCreateSonicGatewayNHGObj() {
     if (m_nhg.nh_srv6 != nullptr && m_nhg.nh_srv6->seg6_segs != nullptr && CHECK_FLAG(m_nhg.nhg_flags, NEXTHOP_GROUP_RECEIVED_FLAG)) {
         m_sonic_obj_type = SONIC_NHG_OBJ_TYPE_NHG_SRV6_GATEWAY;
         m_has_sonic_gateway_obj = true;
-        SWSS_LOG_DEBUG("NextHop id %d has sonic gateway obj.", m_rib_id);
+        SWSS_LOG_NOTICE("NextHop id %d has sonic gateway obj.", m_rib_id);
         return;
     }
 

@@ -949,11 +949,11 @@ int RIBNHGTable::writeToDB(RIBNHGEntry *entry) {
     }
     if (current_fields == entry->getLastAppdbFields()) {
         SWSS_LOG_DEBUG("writeToDB: skip redundant write for %d", entry->getRIBID());
-        return 0;
+        //return 0;
     }
     entry->setLastAppdbFields(current_fields);
 
-    SWSS_LOG_DEBUG("writeToDB: write for %d sonic id %d, value %s", entry->getRIBID(), entry->getSonicObjID(), current_fields.c_str());
+    SWSS_LOG_NOTICE("writeToDB: write for %d sonic id %d, value %s", entry->getRIBID(), entry->getSonicObjID(), current_fields.c_str());
 
     m_nexthop_groupTable.set(std::to_string(entry->getSonicObjID()), fvVector);
     return 0;
@@ -963,6 +963,7 @@ int RIBNHGTable::writeToDB(RIBNHGEntry *entry) {
  * remove Sonic NHG Object from APP_DB by ID
  */
 void RIBNHGTable::removeFromDB(uint32_t id) {
+    SWSS_LOG_NOTICE("removeFromDB: remove sonic id %d", id);
     m_nexthop_groupTable.del(std::to_string(id));
     return;
 }

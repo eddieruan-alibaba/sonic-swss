@@ -955,7 +955,7 @@ int RIBNHGTable::writeToDB(RIBNHGEntry *entry) {
 
     SWSS_LOG_NOTICE("writeToDB: write for %d sonic id %d, value %s, m_is_single %d m_sonic_obj_type %d", 
                 entry->getRIBID(), entry->getSonicObjID(), 
-                current_fields.c_str(), (int)entry->m_is_single, entry->m_sonic_obj_type);
+                current_fields.c_str(), (int)entry->isSingleNexthop(), entry->getSonicObjType());
 
     m_nexthop_groupTable.set(std::to_string(entry->getSonicObjID()), fvVector);
     return 0;

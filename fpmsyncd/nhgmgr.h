@@ -9,6 +9,7 @@
 #include <nexthopgroup/nexthopgroup_debug.h>
 
 #include <string.h>
+#include <sstream>
 
 #define NHG_DELIMITER ','
 #define NEXTHOP_GROUP_RECEIVED_FLAG (1 << 10)
@@ -126,6 +127,21 @@ namespace swss {
             return false;
         }
 
+        // Returns a single-line formatted string safe for SWSS logging
+        std::string toDebugString() const {
+            std::ostringstream oss;
+            oss << "groupMember: [";
+            for (size_t i = 0; i < groupMember.size(); ++i) {
+                oss << "(" << groupMember[i].first << "," << groupMember[i].second << ")";
+                if (i < groupMember.size() - 1) oss << ", ";
+            }
+            oss << "], nexthop: " << nexthop
+                << ", vpnSid: " << vpnSid
+                << ", segSrc: " << segSrc
+                << ", ifName: " << ifName
+                << ", type: " << static_cast<int>(type); // Works for both enum & enum class
+            return oss.str();
+        }
         /*
          * compare operator of two SonicNHGObjectKey
          */

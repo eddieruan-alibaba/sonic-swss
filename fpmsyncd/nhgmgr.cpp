@@ -357,6 +357,8 @@ int NHGMgr::updateExistingNHGFull(NextHopGroupFull nhg, uint8_t af) {
             return -1;
         }
 
+        SWSS_LOG_NOTICE("updateExistingNHGFull: Previous key %s, current key %s",previousKey.toDebugString().c_str(),
+                        entry->getSonicNHGObjectKey().toDebugString().c_str());
         if(previousKey != entry->getSonicNHGObjectKey()){
             m_rib_nhg_table->subSonicNHGObjectRef(previousKey);
 
@@ -368,7 +370,7 @@ int NHGMgr::updateExistingNHGFull(NextHopGroupFull nhg, uint8_t af) {
                     return -1;
                 }
 
-                SWSS_LOG_NOTICE("updateExistingNHGFull : get sonic nhg id %d for RIB ID %d", sonicId, nhg.id);
+                SWSS_LOG_NOTICE("updateExistingNHGFull : get sonic id %d for RIB ID %d", sonicId, nhg.id);
 
                 entry->setSonicNHGObjId(sonicId);
                 ret = m_rib_nhg_table->writeToDB(entry);
@@ -462,7 +464,7 @@ int NHGMgr::createSonicGatewayNHGObject(RIBNHGEntry *entry) {
 
     // allocate sonic gateway object id
     sonicGatewayNHGID = m_sonic_id_manager.allocateID(sType);
-    SWSS_LOG_NOTICE("createSonicGatewayNHGObject : get sonic nhg id %d, RIB ID %d", sonicGatewayNHGID, entry->getRIBID());
+    SWSS_LOG_NOTICE("createSonicGatewayNHGObject : get sonic id %d, RIB ID %d", sonicGatewayNHGID, entry->getRIBID());
     if (sonicGatewayNHGID == 0) {
         SWSS_LOG_ERROR("Failed to allocate sonic nhg id");
         return -1;
@@ -2028,7 +2030,9 @@ u_int32_t SonicIDMgr::allocateID(sonicNhgObjType type) {
         SWSS_LOG_ERROR("SonicIDAllocator is not exist: %d", type);
         return 0;
     }
-    return allocator->allocateID();
+    uint32_t id = allocator->allocateID();
+    SWSS_LOG_NOTICE("allocateID: sonic id type %d id %d", (int) type, id);
+    return id;
 }
 
 void SonicIDMgr::freeID(sonicNhgObjType type, uint32_t id) {
@@ -2038,6 +2042,7 @@ void SonicIDMgr::freeID(sonicNhgObjType type, uint32_t id) {
         return;
     }
     allocator->freeID(id);
+    SWSS_LOG_NOTICE("freeID: sonic id type %d id %d", (int) type, id);
 }
 
 SonicIDAllocator *SonicIDMgr::getAllocator(sonicNhgObjType type) {
@@ -2084,6 +2089,7 @@ uint32_t SonicIDAllocator::allocateID() {
         }
     }
     m_id_map[g_id] = 1;
+    SWSS_LOG_NOTICE("allocateID: sonic id allocate id %d", g_id);
     return g_id;
 };
 
@@ -2091,6 +2097,7 @@ void SonicIDAllocator::freeID(uint32_t id) {
     if (m_id_map.find(id) != m_id_map.end()) {
         m_id_map.erase(id);
     }
+    SWSS_LOG_NOTICE("freeID: sonic id free id %d", id);
 }
 
 bool SonicIDAllocator::isInUsed(uint32_t id) {
@@ -2132,7 +2139,7 @@ void SonicNHGObjectKey::createSonicNormalNHGObjectKey(RIBNHGEntry *entry, SonicN
         key_out.segSrc = entry->getSegSrcStr();
         key_out.vpnSid = entry->getVPNSIDStr();
     }else{
-        for (auto member: entry->getResolvedGroup()){
+        for (auto member: entry->getGroup()){
             key_out.groupMember.push_back(std::make_pair(member.first, member.second));
         }
     }

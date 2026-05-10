@@ -15,6 +15,11 @@
 #include "macaddress.h"
 #include "converter.h"
 #include <string.h>
+#include <iostream>
+#include <chrono>
+#include <ctime>
+#include <sstream>
+#include <iomanip>
 #include <arpa/inet.h>
 #include <linux/nexthop.h>
 #include "fpmsyncd/nhgmgr.h"
@@ -2287,6 +2292,18 @@ void RouteSync::onNextHopMsg(struct nlmsghdr *h, int len)
     return;
 }
 
+std::string get_timestamp_cxx11() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    
+    // Convert to local time struct
+    std::tm tm = *std::localtime(&t); // ⚠️ Not thread-safe (see note below)
+    
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
+    return oss.str();
+}
+
 /*
  * Handle Nexthop Full msg
  *
@@ -2396,6 +2413,13 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         }
         dependents_str += "]";
         fvs.emplace_back("dependents", dependents_str);
+
+        fvs.emplace_back("updatetime", get_timestamp_cxx11());
+        auto entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg.id);
+        if (entry) {
+            auto sonic_id = entry->getSonicObjID();
+            fvs.emplace_back("sonic_id", std::to_string(sonic_id));
+        }
 
         m_nhgFullStateTable.set(to_string(id), fvs);
         m_app_state_pipeline->flush();

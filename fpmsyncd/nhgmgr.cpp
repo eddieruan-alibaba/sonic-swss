@@ -259,6 +259,7 @@ int NHGMgr::addNewNHGFull(NextHopGroupFull nhg, uint8_t af) {
             m_rib_nhg_table->delEntry(nhg.id);
             return -1;
         }
+        SWSS_LOG_NOTICE("AddNewNHGFull : RIB ID %d, sonic id %d", nhg.id, sonicId);
 
         entry->setSonicNHGObjId(sonicId);
         ret = m_rib_nhg_table->writeToDB(entry);
@@ -272,7 +273,7 @@ int NHGMgr::addNewNHGFull(NextHopGroupFull nhg, uint8_t af) {
         SonicNHGObjectKey::createSonicNormalNHGObjectKey(entry, key);
         m_rib_nhg_table->insertCreatedNHGObject(key, sonicId);
         entry->setSonicNHGObjId(sonicId);
-        SWSS_LOG_DEBUG("Create sonic NHG for %d, sonic id %d", nhg.id, sonicId);
+        SWSS_LOG_NOTICE("Create sonic NHG for %d, sonic id %d", nhg.id, sonicId);
     }
 
     /*
@@ -367,6 +368,8 @@ int NHGMgr::updateExistingNHGFull(NextHopGroupFull nhg, uint8_t af) {
                     return -1;
                 }
 
+                SWSS_LOG_NOTICE("updateExistingNHGFull : get sonic nhg id %d for RIB ID %d", sonicId, nhg.id);
+
                 entry->setSonicNHGObjId(sonicId);
                 ret = m_rib_nhg_table->writeToDB(entry);
                 if (ret != 0) {
@@ -378,7 +381,7 @@ int NHGMgr::updateExistingNHGFull(NextHopGroupFull nhg, uint8_t af) {
                 SonicNHGObjectKey key;
                 SonicNHGObjectKey::createSonicNormalNHGObjectKey(entry, key);
                 m_rib_nhg_table->insertCreatedNHGObject(key, sonicId);
-                SWSS_LOG_NOTICE("Create sonic NHG for %d, sonic id %d", nhg.id, sonicId);
+                SWSS_LOG_NOTICE("Update sonic NHG for %d, sonic id %d", nhg.id, sonicId);
             }
         }
 
@@ -459,6 +462,7 @@ int NHGMgr::createSonicGatewayNHGObject(RIBNHGEntry *entry) {
 
     // allocate sonic gateway object id
     sonicGatewayNHGID = m_sonic_id_manager.allocateID(sType);
+    SWSS_LOG_NOTICE("createSonicGatewayNHGObject : get sonic nhg id %d, RIB ID %d", sonicGatewayNHGID, entry->getRIBID());
     if (sonicGatewayNHGID == 0) {
         SWSS_LOG_ERROR("Failed to allocate sonic nhg id");
         return -1;
@@ -550,6 +554,7 @@ int NHGMgr::updateSonicGatewayNHGObject(RIBNHGEntry *entry, uint32_t previousSon
         SWSS_LOG_ERROR("Failed to write to DB for %d", previousSonicGatewayObjID);
         return ret;
     }
+    SWSS_LOG_NOTICE("Update SONiC Gateway NHG RIB Entry id %d sonic nh id %d", entry->getRIBID(), sonicEntry->getSonicGateWayObjID());
     return 0;
 }
 
@@ -997,6 +1002,7 @@ void RIBNHGTable::subSonicNHGObjectRef(SonicNHGObjectKey key) {
      * if refCount is 0, then remove the sonic nhg object
      */
     if(m_created_nhg_map[key].refCount == 0){
+        SWSS_LOG_NOTICE("Remove sonic nhg from DB sonic id %d", m_created_nhg_map[key].id);
         this->removeFromDB(m_created_nhg_map[key].id);
         m_sonic_id_manager->freeID(SONIC_NHG_OBJ_TYPE_NHG_NORMAL, m_created_nhg_map[key].id);
         m_created_nhg_map.erase(key);
@@ -1650,13 +1656,16 @@ bool RIBNHGEntry::getNhgEnableStatus() {
 void RIBNHGEntry::checkNeedCreateSonicNHGObj() {
     SonicNHGObjectKey::createSonicNormalNHGObjectKey(this, m_sonic_nhg_key);
     if (m_sonic_obj_type == SONIC_NHG_OBJ_TYPE_NHG_SRV6_GATEWAY){
+        
         uint32_t id = m_table->getCreatedNHGObjectID(m_sonic_nhg_key);
         if (id == 0){
             m_create_sonic_nhg_obj = true;
+            SWSS_LOG_NOTICE("Need to create sonic NHG obj RIB id %d", this->getRIBID());
         }else{
             m_create_sonic_nhg_obj = false;
             m_sonic_obj_id = id;
             m_table->addSonicNHGObjectRef(m_sonic_nhg_key);
+            SWSS_LOG_NOTICE("Update sonic NHG obj for RIB id %d", this->getRIBID());
         }
     }else{
         if (m_is_single == true){
@@ -2240,7 +2249,7 @@ bool fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_walking_
         return true;
     }
     ctx.table->writeToDB(entry);
-    SWSS_LOG_DEBUG("walk_spec: node %d regenerated and written to APPDB", entry_id);
+    SWSS_LOG_NOTICE("walk_spec: node %d regenerated and written to APPDB", entry_id);
     return true;
 }
 

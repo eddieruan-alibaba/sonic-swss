@@ -1216,7 +1216,7 @@ int RIBNHGEntry::setEntry(NextHopGroupFull nhg, uint8_t af) {
         m_group.insert(std::make_pair(it->id, it->weight));
         SWSS_LOG_NOTICE("NextHop id %d add group %d.", m_rib_id, it->id);
     }
-     SWSS_LOG_NOTICE("Group size %u", m_group.size());
+     SWSS_LOG_NOTICE("Group size %lu", m_group.size());
 
     if (nhg.type == fib::NEXTHOP_TYPE_IPV6 || nhg.type == fib::NEXTHOP_TYPE_IPV6_IFINDEX ||
         nhg.type == fib::NEXTHOP_TYPE_IPV4 || nhg.type == fib::NEXTHOP_TYPE_IPV4_IFINDEX) {
@@ -2144,7 +2144,7 @@ void SonicNHGObjectKey::createSonicNormalNHGObjectKey(RIBNHGEntry *entry, SonicN
             key_out.groupMember.push_back(std::make_pair(member.first, member.second));
         }
     }
-    SWSS_LOG_NOTICE("createSonicNormalNHGObjectKey: RIBNHGEntry id %d, key  %s, group size %d",
+    SWSS_LOG_NOTICE("createSonicNormalNHGObjectKey: RIBNHGEntry id %d, key  %s, group size %ld",
                      entry->getRIBID(), key_out.toDebugString().c_str(), entry->getGroup().size());
 }
 

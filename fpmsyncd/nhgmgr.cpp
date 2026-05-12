@@ -2140,6 +2140,7 @@ void SonicNHGObjectKey::createSonicNormalNHGObjectKey(RIBNHGEntry *entry, SonicN
         key_out.segSrc = entry->getSegSrcStr();
         key_out.vpnSid = entry->getVPNSIDStr();
     }else{
+        key_out.groupMember.clear();
         for (auto member: entry->getGroup()){
             key_out.groupMember.push_back(std::make_pair(member.first, member.second));
         }

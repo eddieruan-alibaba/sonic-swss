@@ -18,6 +18,7 @@
 #include "fpmsyncd/nhgmgr.h"
 #include <linux/lwtunnel.h>
 #include <linux/seg6_iptunnel.h>
+#include <chrono>
 
 using namespace std;
 using namespace swss;
@@ -2347,9 +2348,45 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         /*
          * Write decoded NHG Full info to APPL_STATE_DB for debugging.
          * key: nhg_id
-         * value: NextHopGroupFull(json_str), nh_grp_full(list), depends(list), dependents(list)
+         * value: NextHopGroupFull(json_str), nh_grp_full(list), depends(list), dependents(list),
+         *        sonic_nhg_id, create_time, update_time
          */
         std::vector<FieldValueTuple> fvs;
+
+        /* Timestamps: create_time (preserved on update), update_time (always refreshed) */
+        auto now = std::chrono::system_clock::now();
+        auto time_t_now = std::chrono::system_clock::to_time_t(now);
+        char time_buf[64];
+        std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", std::localtime(&time_t_now));
+        string now_str(time_buf);
+
+        /* Try to read existing create_time; if not found, this is a new entry */
+        string existing_create_time;
+        std::vector<FieldValueTuple> existing_fvs;
+        if (m_nhgFullStateTable.get(to_string(id), existing_fvs))
+        {
+            for (auto &fv : existing_fvs)
+            {
+                if (fvField(fv) == "create_time")
+                {
+                    existing_create_time = fvValue(fv);
+                    break;
+                }
+            }
+        }
+        fvs.emplace_back("create_time", existing_create_time.empty() ? now_str : existing_create_time);
+        fvs.emplace_back("update_time", now_str);
+
+        /* Sonic NHG ID */
+        RIBNHGEntry *entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(id);
+        if (entry)
+        {
+            fvs.emplace_back("sonic_nhg_id", to_string(entry->getSonicObjID()));
+        }
+        else
+        {
+            fvs.emplace_back("sonic_nhg_id", "N/A");
+        }
 
         /* Raw JSON string (pretty-printed for readability) */
         fvs.emplace_back("json", j.dump(4));

@@ -10,6 +10,9 @@
 
 #include <string.h>
 #include <algorithm>
+#include <functional>
+#include <set>
+#include <unordered_map>
 
 #define NHG_DELIMITER ','
 #define NEXTHOP_GROUP_RECEIVED_FLAG (1 << 10)
@@ -607,6 +610,49 @@ using namespace std;
          */
         bool getNhgEnableStatus();
 
+        // get the gateway address of RIBNHGEntry
+        const string& getGatewayAddress() const {
+            return m_gateway;
+        }
+
+        // get the resolved enable group of RIBNHGEntry
+        unordered_map<uint32_t, bool>& getResolvedEnableGroup() {
+            return m_resolved_enable_group;
+        }
+
+        // get cached APPDB fields for dedup
+        const string& getLastAppdbFields() const {
+            return m_last_appdb_fields;
+        }
+
+        // set cached APPDB fields for dedup
+        void setLastAppdbFields(const string& fields) {
+            m_last_appdb_fields = fields;
+        }
+
+        // regenerate NHG fields and sync FV vector (used by PIC backwalk)
+        int regenerateFields() {
+            if (getNHGFields() != 0) return -1;
+            return syncFvVector();
+        }
+
+        // add a dependent member to m_dependents
+        void addDependentsMember(uint32_t id) {
+            m_dependents.insert(id);
+        }
+
+        // remove a dependent member from m_dependents
+        void removeDependentsMember(uint32_t id) {
+            m_dependents.erase(id);
+        }
+
+        // reset all resolved_enable_group entries to true (on NHG update)
+        void resetResolvedEnableGroup() {
+            for (auto& kv : m_resolved_enable_group) {
+                kv.second = true;
+            }
+        }
+
         SonicNHGObjectKey getSonicNHGObjectKey(){
             return m_sonic_nhg_key;
         }
@@ -705,6 +751,28 @@ using namespace std;
         bool m_enable = true;
 
         /*
+         * Resolved group enable state: <ribID, enabled>.
+         * - All paths set as enabled upon Add/Update events from FRR.
+         * - Paths marked disabled during backwalk process.
+         * - For leaf NHGs (depends.empty()), a self-reference {self_id, true}
+         *   is added so walk_spec can mark the leaf disabled.
+         */
+        unordered_map<uint32_t, bool> m_resolved_enable_group;
+
+        /*
+         * Gateway address (recursive nexthop address).
+         * In single-path case, same as m_nexthop.
+         * In recursive case, this is the recursive nexthop address.
+         */
+        string m_gateway = "";
+
+        /*
+         * Cached APPDB fields for deduplication.
+         * Compared before each writeToDB() to avoid redundant APPDB writes.
+         */
+        string m_last_appdb_fields;
+
+        /*
          *  Shared Sonic NHG Object flag of the entry.
          */
         bool m_is_shared_sonic_nhg = false;
@@ -798,6 +866,12 @@ using namespace std;
         // get entry from table by rib ID
         RIBNHGEntry *getEntry(uint32_t id);
 
+        // add dependents relationship: for each entry in depends, add id to their m_dependents
+        int addNHGDependents(std::set<uint32_t> depends, uint32_t id);
+
+        // remove dependents relationship: for each entry in depends, remove id from their m_dependents
+        void removeNHGDependents(std::set<uint32_t> depends, uint32_t id);
+
         // check if NHG entry exist in table by rib ID
         bool isNHGExist(uint32_t id);
 
@@ -809,6 +883,44 @@ using namespace std;
 
         // clean up all the entry the table
         void cleanUp();
+
+        // Global map APIs (Part 1 fallback)
+        void addGlobalEntry(const std::string& nexthop, RIBNHGEntry* entry) {
+            m_nexthop_to_global_RIBNHG[nexthop].insert(entry);
+        }
+
+        bool removeGlobalEntry(const std::string& nexthop, RIBNHGEntry* entry) {
+            auto it = m_nexthop_to_global_RIBNHG.find(nexthop);
+            if (it == m_nexthop_to_global_RIBNHG.end()) return false;
+            if (it->second.erase(entry) == 0) return false;
+            if (it->second.empty()) m_nexthop_to_global_RIBNHG.erase(it);
+            return true;
+        }
+
+        const std::set<RIBNHGEntry*>& getGlobalEntries(const std::string& nexthop) const {
+            static const std::set<RIBNHGEntry*> emptySet;
+            auto it = m_nexthop_to_global_RIBNHG.find(nexthop);
+            return it != m_nexthop_to_global_RIBNHG.end() ? it->second : emptySet;
+        }
+
+        // VRF map APIs (Part 2)
+        void addVrfEntry(const std::string& nexthop, RIBNHGEntry* entry) {
+            m_nexthop_to_vrf_RIBNHG[nexthop].insert(entry);
+        }
+
+        bool removeVrfEntry(const std::string& nexthop, RIBNHGEntry* entry) {
+            auto it = m_nexthop_to_vrf_RIBNHG.find(nexthop);
+            if (it == m_nexthop_to_vrf_RIBNHG.end()) return false;
+            if (it->second.erase(entry) == 0) return false;
+            if (it->second.empty()) m_nexthop_to_vrf_RIBNHG.erase(it);
+            return true;
+        }
+
+        const std::set<RIBNHGEntry*>& getVrfEntries(const std::string& nexthop) const {
+            static const std::set<RIBNHGEntry*> emptySet;
+            auto it = m_nexthop_to_vrf_RIBNHG.find(nexthop);
+            return it != m_nexthop_to_vrf_RIBNHG.end() ? it->second : emptySet;
+        }
 
         // insert shared Sonic NHG Object into m_created_shared_nhg_map
         void insertCreatedSharedNHGObject(SonicNHGObjectKey key, uint32_t id);
@@ -842,6 +954,23 @@ using namespace std;
         map<uint32_t , uint32_t> m_sonic_nhg_id_2_rib_nhg_id_map;
 
         ProducerStateTable m_nexthop_groupTable;
+
+        /* Nexthop-to-RIBNHGEntry index for global table context (Part 1 fallback) */
+        std::map<std::string, std::set<RIBNHGEntry*>> m_nexthop_to_global_RIBNHG;
+
+        /* Nexthop-to-RIBNHGEntry index for VRF/VPN context (Part 2) */
+        std::map<std::string, std::set<RIBNHGEntry*>> m_nexthop_to_vrf_RIBNHG;
+    };
+
+    /* Backwalk context structure for PIC fast convergence */
+    struct fib_nhg_walking_ctx {
+        std::set<uint32_t> visited_node_set;
+        std::set<uint32_t> modified_node_set;
+        std::set<std::string> updated_sonic_nhg_keys;
+        std::function<bool(RIBNHGEntry*, fib_nhg_walking_ctx&)> fib_nhg_walk_spec_func;
+        std::function<bool(RIBNHGEntry*, bool, fib_nhg_walking_ctx&)> fib_nhg_prune_spec_func;
+        std::string nexthop_address;
+        RIBNHGTable* rib_nhg_table = nullptr;
     };
 
     class NHGMgr {
@@ -891,6 +1020,12 @@ using namespace std;
         // Not implemented
         RIBNHGEntry *getRIBNHGEntryByKey(string key);
 
+        // PIC backwalk: entry point when NHT event indicates nexthop unreachable
+        void fib_nhg_trigger_node_quick_fixup(const std::string& nexthop_addr, uint32_t resolved_nhg_id);
+
+        // PIC backwalk: generic backwalk traversal from a given NHG ID
+        void fib_nhg_back_walk(uint32_t id, fib_nhg_walking_ctx& ctx);
+
     private:
         // Map zebra NHG id to received zebra_dplane_ctx + SONIC Context (a.k.a SONIC ZEBRA NHG)
         RIBNHGTable *m_rib_nhg_table;
@@ -915,6 +1050,18 @@ using namespace std;
 
         // dump NHG Group Full for debugging
         void dumpNHGGroupFull(NextHopGroupFull nhg);
+
+        // Part 1 walk spec: mark disabled paths for global-table NHGs
+        static bool fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_walking_ctx& ctx);
+
+        // Part 1 prune spec: determine whether to halt backwalk
+        static bool fib_nhg_prune_spec_for_node_quick_fixup(RIBNHGEntry* entry, bool walk_result, fib_nhg_walking_ctx& ctx);
+
+        // Part 2 walk spec: update SONiC NHG representations
+        static bool fib_nhg_walk_spec_for_node_quick_fixup_sonic_nhg(RIBNHGEntry* entry, fib_nhg_walking_ctx& ctx);
+
+        // Part 2 prune spec: determine whether to halt VPN backwalk
+        static bool fib_nhg_prune_spec_for_node_quick_fixup_sonic_nhg(RIBNHGEntry* entry, bool walk_result, fib_nhg_walking_ctx& ctx);
 
     };
 

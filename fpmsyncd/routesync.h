@@ -226,6 +226,8 @@ private:
     /* Handle Nexthop message */
     void onNextHopMsg(struct nlmsghdr *h, int len);
     void onNextHopGroupFullMsg(struct nlmsghdr *h, int len);
+    /* Handle NHT (Nexthop Tracking) event message */
+    void onNhtEventMsg(struct nlmsghdr *h, int len);
     /* Get next hop group key */
     const string getNextHopGroupKeyAsString(uint32_t id) const;
     void installNextHopGroup(uint32_t nh_id);

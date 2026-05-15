@@ -21,6 +21,7 @@
 #define RTM_DELSRV6VPNROUTE		3001
 #define RTM_NEWNHGFIB			5000
 #define RTM_DELNHGFIB			5001
+#define RTM_NEWNHTEVENT			6000
 
 namespace swss {
 

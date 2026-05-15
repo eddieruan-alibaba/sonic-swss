@@ -16,6 +16,7 @@
 #include <arpa/inet.h>
 #include <linux/nexthop.h>
 #include "fpmsyncd/nhgmgr.h"
+#include <nexthopgroup/nhtevent_json.h>
 #include <linux/lwtunnel.h>
 #include <linux/seg6_iptunnel.h>
 #include <chrono>
@@ -1778,6 +1779,7 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
         && (h->nlmsg_type != RTM_DELNEXTHOP)
         && (h->nlmsg_type != RTM_NEWNHGFIB)
         && (h->nlmsg_type != RTM_DELNHGFIB)
+        && (h->nlmsg_type != RTM_NEWNHTEVENT)
         && (h->nlmsg_type != RTM_NEWSRV6VPNROUTE)
         && (h->nlmsg_type != RTM_DELSRV6VPNROUTE)
     )
@@ -1787,6 +1789,10 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
        || h->nlmsg_type == RTM_NEWNHGFIB || h->nlmsg_type == RTM_DELNHGFIB)
     {
         len = (int)(h->nlmsg_len - NLMSG_LENGTH(sizeof(struct nhmsg)));
+    }
+    else if(h->nlmsg_type == RTM_NEWNHTEVENT)
+    {
+        len = (int)(h->nlmsg_len - NLMSG_LENGTH(sizeof(struct rtmsg)));
     }
     else
     {
@@ -1798,6 +1804,12 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
         SWSS_LOG_ERROR("%s: Message received from netlink is of a broken size %d %zu",
             __PRETTY_FUNCTION__, h->nlmsg_len,
             (size_t)NLMSG_LENGTH(sizeof(struct ndmsg)));
+        return;
+    }
+
+    if(h->nlmsg_type == RTM_NEWNHTEVENT)
+    {
+        onNhtEventMsg(h, len);
         return;
     }
 
@@ -2442,6 +2454,53 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
     }
 
     return;
+}
+
+/*
+ * Handle NHT (Nexthop Tracking) event message from FRR via FPM.
+ */
+void RouteSync::onNhtEventMsg(struct nlmsghdr *h, int len)
+{
+    struct rtmsg *rtm = (struct rtmsg *)NLMSG_DATA(h);
+    struct rtattr *tb[RTA_MAX + 1] = {};
+
+    netlink_parse_rtattr(tb, RTA_MAX, RTM_RTA(rtm), len);
+
+    if (!tb[NHA_JSON_STR]) {
+        SWSS_LOG_ERROR("NHT event message without JSON string");
+        return;
+    }
+
+    char *json_str = (char *)RTA_DATA(tb[NHA_JSON_STR]);
+    SWSS_LOG_NOTICE("Received NHT event JSON: %s", json_str);
+
+    try {
+        /* Deserialize NHT event via sonic-fib */
+        fib::NhtEvent nht_event = fib::nhtevent_from_json_string(string(json_str));
+
+        /* Phase 1: Only trigger when curr_resolved_nhg_id == 0 (nexthop unreachable) */
+        if (nht_event.curr_resolved_nhg_id != 0) {
+            SWSS_LOG_DEBUG("NHT event for %s: curr_resolved_nhg_id=%u, skipping (not Phase 1)",
+                nht_event.rnh_prefix.c_str(), nht_event.curr_resolved_nhg_id);
+            return;
+        }
+
+        /* Convert rnh_prefix to nexthop address (strip /prefix_len) */
+        string nexthop_addr = nht_event.rnh_prefix;
+        size_t slash_pos = nexthop_addr.find('/');
+        if (slash_pos != string::npos) {
+            nexthop_addr = nexthop_addr.substr(0, slash_pos);
+        }
+
+        SWSS_LOG_NOTICE("NHT trigger: nexthop=%s prev_nhg_id=%u",
+                        nexthop_addr.c_str(), nht_event.prev_resolved_nhg_id);
+
+        m_rib_fib_nhg_mgr.fib_nhg_trigger_node_quick_fixup(
+            nexthop_addr, nht_event.prev_resolved_nhg_id);
+
+    } catch (const std::exception &e) {
+        SWSS_LOG_ERROR("Failed to parse NHT event JSON: %s", e.what());
+    }
 }
 
 /*

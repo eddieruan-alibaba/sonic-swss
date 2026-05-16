@@ -776,6 +776,8 @@ int RIBNHGTable::delEntry(uint32_t id) {
     if (entry->isSharedSonicNHG()){
         this->subSonicNHGObjectRef(entry->getSonicNHGObjectKey());
     }else{
+        SWSS_LOG_NOTICE("delEntry: remove entry from NHG DB for RIB_id %d, sonic_id %d", 
+                         entry->getRIBID(), entry->getSonicObjID());
         this->removeFromDB(sonicNHGID);
         m_sonic_id_manager->freeID(SONIC_NHG_OBJ_TYPE_NHG_NORMAL, sonicNHGID);
         m_sonic_nhg_id_2_rib_nhg_id_map.erase(sonicNHGID);
@@ -872,6 +874,9 @@ int RIBNHGTable::writeToDB(RIBNHGEntry *entry) {
     }
     entry->setLastAppdbFields(fields_str);
 
+    SWSS_LOG_NOTICE("writeToDB : RIB_id %d sonic_id %d, fields %s", 
+                    entry->getRIBID(), entry->getSonicObjID(), fields_str.c_str())
+
     m_nexthop_groupTable.set(std::to_string(entry->getSonicObjID()), fvVector);
     return 0;
 }
@@ -914,6 +919,8 @@ void RIBNHGTable::subSonicNHGObjectRef(SonicNHGObjectKey key) {
      * if refCount is 0, then remove the sonic nhg object
      */
     if(m_created_shared_nhg_map[key].refCount == 0){
+         SWSS_LOG_NOTICE("subSonicNHGObjectRef: sonic_id %d",
+                         m_created_shared_nhg_map[key].id);
         this->removeFromDB(m_created_shared_nhg_map[key].id);
         m_sonic_id_manager->freeID(SONIC_NHG_OBJ_TYPE_NHG_NORMAL, m_created_shared_nhg_map[key].id);
         m_created_shared_nhg_map.erase(key);
@@ -1844,7 +1851,9 @@ u_int32_t SonicIDMgr::allocateID(sonicNhgObjType type) {
         SWSS_LOG_ERROR("SonicIDAllocator is not exist: %d", type);
         return 0;
     }
-    return allocator->allocateID();
+    auto id = allocator->allocateID();
+    SWSS_LOG_NOTICE("Allocate id : type %d id %d", (int) type, (int) id);
+    return id;
 }
 
 void SonicIDMgr::freeID(sonicNhgObjType type, uint32_t id) {
@@ -1853,6 +1862,7 @@ void SonicIDMgr::freeID(sonicNhgObjType type, uint32_t id) {
         SWSS_LOG_ERROR("SonicIDAllocator is not exist: %d", type);
         return;
     }
+    SWSS_LOG_NOTICE("Free id : type %d id %d", (int) type, (int) id);
     allocator->freeID(id);
 }
 

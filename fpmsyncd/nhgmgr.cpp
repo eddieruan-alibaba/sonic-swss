@@ -716,7 +716,7 @@ int RIBNHGTable::writeToDB(RIBNHGEntry *entry) {
     entry->setLastAppdbFields(fields_str);
 
     SWSS_LOG_NOTICE("writeToDB : RIB_id %d sonic_id %d, fields %s", 
-                    entry->getRIBID(), entry->getSonicObjID(), fields_str.c_str())
+                    entry->getRIBID(), entry->getSonicObjID(), fields_str.c_str());
 
     m_nexthop_groupTable.set(std::to_string(entry->getSonicObjID()), fvVector);
 

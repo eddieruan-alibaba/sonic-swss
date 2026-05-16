@@ -709,7 +709,7 @@ int RIBNHGTable::writeToDB(RIBNHGEntry *entry) {
     }
     if (fields_str == entry->getLastAppdbFields()) {
         SWSS_LOG_DEBUG("Skip writeToDB for %d: fields unchanged", entry->getSonicObjID());
-        return 0;
+        //return 0;
     }
     entry->setLastAppdbFields(fields_str);
 

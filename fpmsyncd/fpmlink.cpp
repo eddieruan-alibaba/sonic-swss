@@ -287,9 +287,10 @@ void FpmLink::processFpmMessage(fpm_msg_hdr_t* hdr)
             processRawMsg(nl_hdr);
         }
         else if(nl_hdr->nlmsg_type == RTM_NEWNEXTHOP || nl_hdr->nlmsg_type == RTM_DELNEXTHOP
-                || nl_hdr->nlmsg_type == RTM_NEWNHGFIB || nl_hdr->nlmsg_type == RTM_DELNHGFIB)
+                || nl_hdr->nlmsg_type == RTM_NEWNHGFIB || nl_hdr->nlmsg_type == RTM_DELNHGFIB
+                || nl_hdr->nlmsg_type == RTM_NEWNHTEVENT)
         {
-            /* rtnl api dont support RTM_NEWNEXTHOP/RTM_DELNEXTHOP yet. Processing as raw message*/
+            /* rtnl api dont support RTM_NEWNEXTHOP/RTM_DELNEXTHOP/RTM_NEWNHTEVENT yet. Processing as raw message*/
             processRawMsg(nl_hdr);
         }
         else

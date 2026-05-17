@@ -1006,7 +1006,58 @@ int RIBNHGEntry::getNHGFields() {
 }
 
 /*
- * get FV vector fields and sonic pic Objects fields from multi nexthopgroup entry
+ * Resolve leaf-level enable/disable flags by walking the depends tree.
+ *
+ * m_resolved_enable_group tracks depends-level IDs, but m_resolvedGroup
+ * contains leaf-level IDs. For intermediate nodes these don't overlap.
+ * This function recursively resolves each leaf's effective status by walking
+ * through enabled depends paths down to the leaves.
+ */
+std::unordered_map<uint32_t, bool> RIBNHGEntry::resolveLeafEnableFlags() {
+    std::unordered_map<uint32_t, bool> result;
+
+    /* Leaf node: m_resolved_enable_group has self-reference {self_id: bool} */
+    if (m_depends.empty()) {
+        for (const auto& kv : m_resolved_enable_group) {
+            result[kv.first] = kv.second;
+        }
+        return result;
+    }
+
+    /* Non-leaf: initialize all leaves in m_resolvedGroup as disabled */
+    for (const auto& nh : m_resolvedGroup) {
+        result[nh.first] = false;
+    }
+
+    /* Walk each depends subtree */
+    for (uint32_t dep_id : m_depends) {
+        /* If this depends path is disabled at our level, skip entire subtree */
+        auto it = m_resolved_enable_group.find(dep_id);
+        if (it != m_resolved_enable_group.end() && !it->second) {
+            continue;
+        }
+
+        /* Recurse into the dep entry to get its leaf flags */
+        RIBNHGEntry* dep_entry = m_table->getEntry(dep_id);
+        if (dep_entry == nullptr) {
+            continue;
+        }
+
+        auto dep_leaf_flags = dep_entry->resolveLeafEnableFlags();
+
+        /* Merge: a leaf is enabled if ANY enabled depends path has it enabled */
+        for (const auto& lf : dep_leaf_flags) {
+            if (lf.second && result.count(lf.first)) {
+                result[lf.first] = true;
+            }
+        }
+    }
+
+    return result;
+}
+
+/*
+ * get FV vector fields and Sonic gateway Objects fields from multi nexthopgroup entry
  *
  * below fields of entry will be set:
  *      m_nexthop
@@ -1023,13 +1074,17 @@ int RIBNHGEntry::getNextHopGroupFields() {
     string weights = "";
     string vpnSids = "";
     string segSrcs = "";
+
+    /* Resolve leaf-level enable flags by walking the depends tree */
+    auto leaf_flags = resolveLeafEnableFlags();
+
     for (const auto &nh: m_resolvedGroup) {
         uint32_t id = nh.first;
 
-        /* Marker-gated slot machine: skip disabled paths */
-        auto enable_it = m_resolved_enable_group.find(id);
-        if (enable_it != m_resolved_enable_group.end() && !enable_it->second) {
-            SWSS_LOG_NOTICE("NextHop id %d skipped (disabled in resolved_enable_group)", id);
+        /* Skip disabled paths based on resolved leaf flags */
+        auto leaf_it = leaf_flags.find(id);
+        if (leaf_it != leaf_flags.end() && !leaf_it->second) {
+            SWSS_LOG_NOTICE("NextHop id %d skipped (disabled via resolved leaf flags)", id);
             continue;
         }
 

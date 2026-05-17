@@ -802,6 +802,13 @@ using namespace std;
         int getNHGFields();
 
         /*
+         * Resolve leaf-level enable/disable flags by walking the depends tree.
+         * Returns a map of {leaf_id -> enabled} for each entry in m_resolvedGroup.
+         * Used by getNextHopGroupFields() to filter disabled leaves for intermediate nodes.
+         */
+        std::unordered_map<uint32_t, bool> resolveLeafEnableFlags();
+
+        /*
          * fill the FV vector of the entry
          */
         int syncFvVector();

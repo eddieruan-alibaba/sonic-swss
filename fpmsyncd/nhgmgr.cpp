@@ -1029,7 +1029,7 @@ int RIBNHGEntry::getNextHopGroupFields() {
         /* Marker-gated slot machine: skip disabled paths */
         auto enable_it = m_resolved_enable_group.find(id);
         if (enable_it != m_resolved_enable_group.end() && !enable_it->second) {
-            SWSS_LOG_DEBUG("NextHop id %d skipped (disabled in resolved_enable_group)", id);
+            SWSS_LOG_NOTICE("NextHop id %d skipped (disabled in resolved_enable_group)", id);
             continue;
         }
 
@@ -1049,9 +1049,9 @@ int RIBNHGEntry::getNextHopGroupFields() {
             weights += NHG_DELIMITER;
         }
         nexthops += entry->getNextHopStr();
-        SWSS_LOG_DEBUG(" entry nexthop: [%s]", entry->getNextHopStr().c_str());
+        SWSS_LOG_NOTICE(" entry nexthop: [%s]", entry->getNextHopStr().c_str());
         ifnames += entry->getInterfaceNameStr();
-        SWSS_LOG_DEBUG(" entry interface: [%s]", entry->getInterfaceNameStr().c_str());
+        SWSS_LOG_NOTICE(" entry interface: [%s]", entry->getInterfaceNameStr().c_str());
         weights += weight;
         SWSS_LOG_DEBUG(" entry weight: [%s]", weight.c_str());
 
@@ -1786,6 +1786,7 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_
     std::set<uint32_t> depends = entry->getDependsID();
     auto& enable_group = entry->getResolvedEnableGroup();
 
+    SWSS_LOG_NOTICE("Walk to node %d", entry->getRIBID());
     /* Visit-for-State: for each depends entry, if ALL its
      * resolved_enable_group entries are false, mark that dep disabled */
     for (uint32_t dep_id : depends) {
@@ -1793,6 +1794,7 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_
         if (dep_entry && isAllDisabled(dep_entry)) {
             enable_group[dep_id] = false;
         }
+        SWSS_LOG_NOTICE("Check depend %d, enable flag %d", dep_id, (int) enable_group[dep_id]);
     }
 
     bool is_relevant = false;
@@ -1824,6 +1826,7 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_
         }
     }
 
+    SWSS_LOG_NOTICE("Node is %d", (int) is_relevant);
     if (!is_relevant) {
         return false;
     }
@@ -1840,7 +1843,7 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_
     ctx.modified_node_set.insert(entry_id);
 
     if (all_disabled) {
-        SWSS_LOG_DEBUG("PIC: walk_spec node %u all paths disabled, skip APPDB write", entry_id);
+        SWSS_LOG_NOTICE("PIC: walk_spec node %u all paths disabled, skip APPDB write", entry_id);
         return true;
     }
 

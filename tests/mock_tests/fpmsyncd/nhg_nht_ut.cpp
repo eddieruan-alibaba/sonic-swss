@@ -1,20 +1,21 @@
-#define private public
-
-#include "ut_helpers_fpmsyncd.h"
-#include "gtest/gtest.h"
-#include <gmock/gmock.h>
-#include "mock_table.h"
+/* System and third-party headers first (must not be affected by private hack) */
 #include <net/if.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
-#include "ipaddress.h"
-#include "fpmlink.h"
-#include "routesync.h"
 #include <iostream>
 #include <fstream>
+#include "gtest/gtest.h"
+#include <gmock/gmock.h>
 #include <nlohmann/json.hpp>
 #include <nexthopgroup/nexthopgroupfull_json.h>
+#include "mock_table.h"
+#include "ipaddress.h"
 
+/* Expose private members for testing */
+#define private public
+#include "ut_helpers_fpmsyncd.h"
+#include "fpmlink.h"
+#include "routesync.h"
 #undef private
 
 using namespace swss;

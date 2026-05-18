@@ -1,3 +1,5 @@
+#define private public
+
 #include "ut_helpers_fpmsyncd.h"
 #include "gtest/gtest.h"
 #include <gmock/gmock.h>
@@ -6,16 +8,13 @@
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include "ipaddress.h"
-#include "fpmsyncd/nhgmgr.h"
+#include "fpmlink.h"
+#include "routesync.h"
 #include <iostream>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <nexthopgroup/nexthopgroupfull_json.h>
 
-#define private public
-#include "fpmlink.h"
-#include "routesync.h"
-#include "nhgmgr.h"
 #undef private
 
 using namespace swss;

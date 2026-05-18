@@ -2378,10 +2378,18 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         fvs.emplace_back("update_time", now_str);
 
         /* Sonic NHG ID */
+        /* Sonic NHG ID */
         RIBNHGEntry *entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(id);
-        if (entry)
+        if (!entry)
         {
-            fvs.emplace_back("sonic_nhg_id", to_string(entry->getSonicObjID()));
+            SWSS_LOG_ERROR("RIBNHGEntry not found for id %d when writing NHG_FULL_STATE_TABLE", id);
+            return;
+        }
+
+        uint32_t sonicId = entry->getSonicObjID();
+        if (sonicId != 0)
+        {
+            fvs.emplace_back("sonic_nhg_id", to_string(sonicId));
         }
         else
         {

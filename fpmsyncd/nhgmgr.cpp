@@ -737,6 +737,18 @@ void RIBNHGEntry::checkNeedUpdate(NextHopGroupFull newNhg, uint8_t afNew ,bool &
         updated = true;
     }
 
+    /* If PIC previously marked any path as disabled in m_resolved_enable_group,
+     * an incoming NHG refresh from FRR should trigger a full setEntry to clear
+     * the sticky disabled state and re-push HW state. FRR only re-sends valid
+     * NHGs, so receiving this message implies the entry is currently valid.
+     * Re-pushing HW state is safe even when no other fields changed. */
+    for (const auto& kv : m_resolved_enable_group) {
+        if (!kv.second) {
+            updated = true;
+            break;
+        }
+    }
+
     return;
 }
 

@@ -1615,62 +1615,11 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
             return ;
         }
 
-        if(nhg_received_entry->isSingleNexthop())
         {
-            SWSS_LOG_INFO("onSrv6VpnRouteMsg: Singleton, zebra nhg_received %d, corresponding SONiC Obj ID %d",
-                   nhg_received_id, nhg_received_entry->getSonicObjID());
-
-            vector<FieldValueTuple> fvVector;
-
-            /* Get nexthop infos from nhg_received_entry */
-            FieldValueTuple nh("nexthop", nhg_received_entry->getNextHopStr().c_str());
-            FieldValueTuple vpn_sid("vpn_sid", nhg_received_entry->getVPNSIDStr().c_str());
-            FieldValueTuple seg_srcs("seg_src", nhg_received_entry->getSegSrcStr().c_str());
-            FieldValueTuple pic_context_id("pic_context_id", "");
-            FieldValueTuple nexthop_group("nexthop_group", "");
-            fvVector.push_back(nh);
-            fvVector.push_back(vpn_sid);
-            fvVector.push_back(seg_srcs);
-            fvVector.push_back(pic_context_id);
-            fvVector.push_back(nexthop_group);
-
-            //Using route-table only for single next-hop
-            // string nexthops, ifnames, weights;
-            // getNextHopGroupFields(nhg, nexthops, ifnames, weights);
-            FieldValueTuple intf("ifname", nhg_received_entry->getInterfaceNameStr().c_str());
-            fvVector.push_back(intf);
-            /* In RIB/FIB we do not write weights for SRv6 VPN case */
-            // if(!weights.empty())
-            // {
-            //     FieldValueTuple wg("weight", nhg_received_entry->getWeightStr().c_str());
-            //     fvVector.push_back(wg);
-            // }
-            m_routeTable->set(routeTableKey, fvVector);
-
-            SWSS_LOG_INFO("onSrv6VpnRouteMsg: zebra nhg_received %d is a singleton. Filling the route table %s with nexthop: %s, vpn_sid: %s, seg_src: %s, and ifname: %s",
-                   nhg_received_id, destipprefix, nhg_received_entry->getNextHopStr().c_str(),
-                   nhg_received_entry->getVPNSIDStr().c_str(), nhg_received_entry->getSegSrcStr().c_str(),
-                   nhg_received_entry->getInterfaceNameStr().c_str());
-        }
-        else{
             vector<FieldValueTuple> fvVectorVpnRoute;
-            // FieldValueTuple pic_context_id("pic_context_id", getNextHopGroupKeyAsString(pic_id));
             FieldValueTuple pic_context_id("pic_context_id", to_string(nhg_received_entry->getSonicPICObjID()));
             fvVectorVpnRoute.push_back(pic_context_id);
 
-            vector<FieldValueTuple> fvVector;
-            // struct NextHopField nhField;
-            // string key = getNextHopGroupKeyAsString(nhg_id);
-            // getPicContextGroupFields(pic, nhField);
-
-            /* In RIB/FIB, we have already have the PIC Context when processing the NextHopGroupFull,
-             * so we do not need to update the nexthop memory table here.
-             */
-            // FieldValueTuple seg_srcs("seg_src", nhField.seg_srcs.c_str());
-            // fvVector.push_back(seg_srcs);
-            // m_nexthop_groupTable.set(key.c_str(), fvVector);
-
-            // FieldValueTuple nexthop_group("nexthop_group", getNextHopGroupKeyAsString(nhg_id));
             FieldValueTuple nexthop_group("nexthop_group", to_string(nhg_received_entry->getSonicObjID()));
             fvVectorVpnRoute.push_back(nexthop_group);
 
@@ -1684,7 +1633,7 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
             fvVectorVpnRoute.push_back(intf);
             m_routeTable->set(routeTableKey, fvVectorVpnRoute);
 
-            SWSS_LOG_INFO("onSrv6VpnRouteMsg: nhg_received %d is multi-nexthop NHG. Filling the route table %s with pic_context_id: %d, nexthop_group: %d",
+            SWSS_LOG_INFO("onSrv6VpnRouteMsg: nhg_received %d, filling route table %s with pic_context_id: %d, nexthop_group: %d",
                    nhg_received_id, destipprefix,
                    nhg_received_entry->getSonicPICObjID(), nhg_received_entry->getSonicObjID());
         }

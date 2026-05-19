@@ -597,6 +597,12 @@ bool RIBNHGEntry::checkNeedUpdate(NextHopGroupFull newNhg, uint8_t afNew) {
         return true;
     }
 
+    for (const auto& kv : m_resolved_enable_group) {
+        if (!kv.second) {
+            return true;
+        }
+    }
+
     return false;
 }
 

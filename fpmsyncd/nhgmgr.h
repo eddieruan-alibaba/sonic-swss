@@ -607,6 +607,11 @@ using namespace std;
          */
         bool getNhgEnableStatus();
 
+        /*
+         * get the m_is_srv6_nhg fields to check if NHG has SRv6 Infos
+         */
+        bool isSRv6Nhg();
+
         SonicNHGObjectKey getSonicNHGObjectKey(){
             return m_sonic_nhg_key;
         }
@@ -714,6 +719,11 @@ using namespace std;
          * has Sonic Gateway Object flag of the entry
          */
         bool m_has_sonic_gateway_obj = false;
+
+        /*
+         * True if with srv6 information or member with srv6 information
+         */
+        bool m_is_srv6_nhg = false;
 
         /*
          * Sonic Gateway NHG Object ID of the entry

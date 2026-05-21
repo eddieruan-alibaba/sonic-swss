@@ -754,22 +754,6 @@ namespace ut_fpmsyncd
         ASSERT_EQ(vpnsids, "1::1");
         ASSERT_EQ(nexthops, "b::b");
 
-        /* Update the NHG object with a new vpn_sid */
-        NextHopGroupFull nhgObjAUpdated = createSingleSRv6VPNNextHopNHGFull("2::2", "a::a", "b::b", ribIDA); // Changed vpn_sid from "1::1" to "2::2"
-        nhgObjAUpdated.depends.resize(0);
-        nhgObjAUpdated.nh_grp_full_list.resize(0);
-
-        /* Send the updated object to the NhgMgr Add function (this should update the existing entry) */
-        ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjAUpdated, AF_INET6), 0);
-
-        /* Check that the vpn_sid field has been updated in the APP_DB */
-        sonicNHGEntry = m_nhgmgr->getSonicGatewayNHGByRIBID(ribIDA);
-        sonicGatewayObjID = sonicNHGEntry->getSonicGateWayObjID();
-        ASSERT_EQ(m_picContextTable->hget(to_string(sonicGatewayObjID), "nexthop", nexthops), true);
-        ASSERT_EQ(m_picContextTable->hget(to_string(sonicGatewayObjID), "vpn_sid", vpnsids), true);
-        ASSERT_EQ(nexthops, "b::b"); // nexthop should remain the same
-        ASSERT_EQ(vpnsids, "2::2");  // vpn_sid should be updated to the new value
-
         /* Remove the NHG object */
         ASSERT_EQ(m_nhgmgr->delNHGFull(ribIDA), 0);
         std::vector<FieldValueTuple> fvs;

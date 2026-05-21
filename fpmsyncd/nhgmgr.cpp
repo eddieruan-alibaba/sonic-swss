@@ -380,16 +380,11 @@ int NHGMgr::updateExistingNHGFull(NextHopGroupFull nhg, uint8_t af) {
             SWSS_LOG_ERROR("Failed to create sonic gateway nhg object key for %d", nhg.id);
             return ret;
         }
-        if (m_sonic_nhg_table->getEntry(newKey) != nullptr) {
-            SWSS_LOG_WARN("Sonic NHG Object with key already exists");
-            return 0;
-        }
-        if (newKey != previousGatewayNHGKey) {
-            ret = updateSonicGatewayNHGObject(entry, previousSonicGatewayObjID);
-            if (ret != 0) {
-                SWSS_LOG_ERROR("Failed to update sonic gateway nhg object for %d", nhg.id);
-                return ret;
-            }
+
+        ret = updateSonicGatewayNHGObject(entry, previousSonicGatewayObjID);
+        if (ret != 0) {
+            SWSS_LOG_ERROR("Failed to update sonic gateway nhg object for %d", nhg.id);
+            return ret;
         }
     }
 

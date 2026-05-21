@@ -352,9 +352,16 @@ int NHGMgr::updateExistingNHGFull(NextHopGroupFull nhg, uint8_t af) {
 
                 SWSS_LOG_NOTICE("Create sonic NHG for %d, sonic id %d", nhg.id, sonicId);
             }
+        } else {
+            /* Key unchanged — refresh APP_DB with updated NHG fields */
+            if (entry->getSonicObjID() != 0) {
+                m_rib_nhg_table->writeToDB(entry);
+            }
         }
 
     }
+    return ret;
+    // Ignore Gateway update 
 
     // check if sonic gateway nhg object updated
     // delete previous sonic gateway nhg object if now not have or type changed
@@ -383,8 +390,7 @@ int NHGMgr::updateExistingNHGFull(NextHopGroupFull nhg, uint8_t af) {
 
         ret = updateSonicGatewayNHGObject(entry, previousSonicGatewayObjID);
         if (ret != 0) {
-            SWSS_LOG_ERROR("Failed to update sonic gateway nhg object for %d", nhg.id);
-            return ret;
+            SWSS_LOG_WARN("Failed to update sonic gateway nhg object for %d, ignored", nhg.id);
         }
     }
 
@@ -1184,12 +1190,12 @@ int RIBNHGEntry::syncFvVector() {
 }
 
 /* get fields from entry */
-int RIBNHGEntry::getNHGFields() {
+int RIBNHGEntry::getNHGFields(bool backwalk) {
 
     if (m_resolvedGroup.size() > 0) {
         SWSS_LOG_DEBUG("multi nexthop group");
         // nexthop with group member
-        return getNextHopGroupFields();
+        return getNextHopGroupFields(backwalk);
 
     } else {
         // nexthop without group member
@@ -1261,24 +1267,30 @@ std::unordered_map<uint32_t, bool> RIBNHGEntry::resolveLeafEnableFlags() {
  *      m_vpnSid
  *      m_segSrc
  */
-int RIBNHGEntry::getNextHopGroupFields() {
+int RIBNHGEntry::getNextHopGroupFields(bool backwalk) {
     string nexthops = "";
     string ifnames = "";
     string weights = "";
     string vpnSids = "";
     string segSrcs = "";
 
-    /* Resolve leaf-level enable flags by walking the depends tree */
-    auto leaf_flags = resolveLeafEnableFlags();
+    /* Only apply leaf-disable filter during PIC backwalk.
+     * For zebra events, zebra is the source of truth — all paths are valid.
+     */
+    std::unordered_map<uint32_t, bool> leaf_flags;
+    if (backwalk) {
+        leaf_flags = resolveLeafEnableFlags();
+    }
 
     for (const auto &nh: m_resolvedGroup) {
         uint32_t id = nh.first;
 
-        /* Skip disabled paths based on resolved leaf flags */
-        auto leaf_it = leaf_flags.find(id);
-        if (leaf_it != leaf_flags.end() && !leaf_it->second) {
-            SWSS_LOG_NOTICE("NextHop id %d skipped (disabled via resolved leaf flags)", id);
-            continue;
+        if (backwalk) {
+            auto leaf_it = leaf_flags.find(id);
+            if (leaf_it != leaf_flags.end() && !leaf_it->second) {
+                SWSS_LOG_NOTICE("NextHop id %d skipped (disabled via resolved leaf flags)", id);
+                continue;
+            }
         }
 
         string weight = to_string(nh.second);

@@ -632,7 +632,7 @@ using namespace std;
 
         // regenerate NHG fields and sync FV vector (used by PIC backwalk)
         int regenerateFields() {
-            if (getNHGFields() != 0) return -1;
+            if (getNHGFields(true) != 0) return -1;
             return syncFvVector();
         }
 
@@ -812,7 +812,7 @@ using namespace std;
         /*
          * calculate FV vector fields of multi NHG entry
          */
-        int getNextHopGroupFields();
+        int getNextHopGroupFields(bool backwalk = false);
 
         /*
          * calculate FV vector fields of single NHG entry
@@ -822,7 +822,7 @@ using namespace std;
         /*
          * calculate FV vector fields for entry
          */
-        int getNHGFields();
+        int getNHGFields(bool backwalk = false);
 
         /*
          * Resolve leaf-level enable/disable flags by walking the depends tree.

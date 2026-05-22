@@ -951,10 +951,10 @@ int RIBNHGEntry::setEntry(NextHopGroupFull nhg, uint8_t af) {
 }
 
 /* sync fvVector from entry */
-int RIBNHGEntry::syncFvVector() {
+int RIBNHGEntry::syncFvVector(bool backwalk) {
     m_fvVector.clear();
     // get the FV vector fields
-    if (getNHGFields() != 0) {
+    if (getNHGFields(backwalk) != 0) {
         SWSS_LOG_ERROR("get nhg fields failed");
         return -1;
     }

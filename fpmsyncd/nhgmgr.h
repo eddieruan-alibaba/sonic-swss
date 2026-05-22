@@ -632,8 +632,7 @@ using namespace std;
 
         // regenerate NHG fields and sync FV vector (used by PIC backwalk)
         int regenerateFields() {
-            if (getNHGFields(true) != 0) return -1;
-            return syncFvVector();
+            return syncFvVector(true);
         }
 
         // add a dependent member to m_dependents
@@ -832,9 +831,13 @@ using namespace std;
         std::unordered_map<uint32_t, bool> resolveLeafEnableFlags();
 
         /*
-         * fill the FV vector of the entry
+         * fill the FV vector of the entry.
+         *
+         * backwalk=true is used during PIC backwalk so that getNHGFields()
+         * filters out leaves disabled via resolved_enable_group flags. For
+         * normal zebra-event paths the default false keeps all paths.
          */
-        int syncFvVector();
+        int syncFvVector(bool backwalk = false);
 
         /*
          * get the resolved group from NextHopGroupFull Object

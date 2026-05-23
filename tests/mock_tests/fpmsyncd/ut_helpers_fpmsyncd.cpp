@@ -617,8 +617,8 @@ namespace ut_fpmsyncd
         std::uint32_t key_in = rand() % 10000 + 1;
         fib::nexthop_types_t type_in = fib::NEXTHOP_TYPE_IPV6;
         fib::vrf_id_t vrf_id_in = rand() % 10000 + 1;
-        fib::ifindex_t ifindex_t_in = rand() % 10000 + 1;
-        std::string ifname_in = "Ethernet" + to_string(ifindex_t_in);
+        fib::ifindex_t ifindex_t_in = 1;
+        std::string ifname_in = "Ethernet1";
         fib::lsp_types_t label_type_in = fib::ZEBRA_LSP_NONE;
         fib::blackhole_type bh_type_in = fib::BLACKHOLE_UNSPEC;
         fib::g_addr gateway_in;
@@ -632,6 +632,7 @@ namespace ut_fpmsyncd
         bool has_srv6 = true;
         bool has_seg6_segs = true;
         fib::nexthop_srv6 *nh_srv6_in = new fib::nexthop_srv6();
+        inet_pton(AF_INET6, src_addr, &nh_srv6_in->seg6_src);
         fib::seg6_seg_stack *nh_seg6_segs_in = new fib::seg6_seg_stack();
         std::vector<struct in6_addr> nh_segs_in;
         struct in6_addr sid;

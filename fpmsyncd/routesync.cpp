@@ -1654,7 +1654,7 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
         else{
             vector<FieldValueTuple> fvVectorVpnRoute;
             // FieldValueTuple pic_context_id("pic_context_id", getNextHopGroupKeyAsString(pic_id));
-            FieldValueTuple pic_context_id("pic_context_id", to_string(nhg_received_entry->getSonicGatewayObjID()));
+            FieldValueTuple pic_context_id("pic_context_id", to_string(nhg_received_entry->getSonicPICObjID()));
             fvVectorVpnRoute.push_back(pic_context_id);
 
             vector<FieldValueTuple> fvVector;
@@ -1685,7 +1685,7 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
 
             SWSS_LOG_INFO("onSrv6VpnRouteMsg: nhg_received %d is multi-nexthop NHG. Filling the route table %s with pic_context_id: %d, nexthop_group: %d",
                    nhg_received_id, destipprefix,
-                   nhg_received_entry->getSonicGatewayObjID(), nhg_received_entry->getSonicObjID());
+                   nhg_received_entry->getSonicPICObjID(), nhg_received_entry->getSonicObjID());
         }
 
     }

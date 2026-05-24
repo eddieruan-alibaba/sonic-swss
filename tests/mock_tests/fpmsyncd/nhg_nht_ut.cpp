@@ -676,4 +676,438 @@ namespace ut_fpmsyncd
         EXPECT_EQ(flags258[234], false);
         EXPECT_EQ(flags258[237], false);
     }
+
+    /* ========== Function-Level Unit Tests ========== */
+
+    /*
+     * checkNeedUpdate: if m_resolved_enable_group has any disabled entry,
+     * force updated=true even when NHG fields are identical.
+     */
+    TEST_F(FpmSyncdNhtBackwalk, CheckNeedUpdate_DisabledEnableGroup)
+    {
+        loadTopologyFromJson("fpmsyncd/test_topology_1.json");
+
+        /* Disable path 237 via backwalk */
+        m_nhgmgr->fib_nhg_trigger_node_quick_fixup("fc06::2", 237);
+
+        RIBNHGEntry* e238 = m_nhgmgr->getRIBNHGEntryByRIBID(238);
+        ASSERT_NE(e238, nullptr);
+        EXPECT_EQ(e238->getResolvedEnableGroup()[237], false);
+
+        /* Now call checkNeedUpdate with the same NHG data — should detect disabled state */
+        /* Re-read the NHG from topology to get identical fields */
+        std::ifstream f("fpmsyncd/test_topology_1.json");
+        json top_level = json::parse(f);
+        fib::NextHopGroupFull nhg238;
+        for (auto it = top_level.items().begin(); it != top_level.items().end(); ++it) {
+            std::string json_str = it.value().dump();
+            fib::NextHopGroupFull nhg;
+            fib::from_json_string(json_str, nhg);
+            if (nhg.id == 238) {
+                nhg238 = nhg;
+                break;
+            }
+        }
+
+        bool updated = false;
+        e238->checkNeedUpdate(nhg238, AF_INET6, updated);
+        EXPECT_TRUE(updated);
+    }
+
+    /*
+     * checkNeedUpdate: when all m_resolved_enable_group entries are enabled
+     * and fields are identical, updated should remain false.
+     */
+    TEST_F(FpmSyncdNhtBackwalk, CheckNeedUpdate_AllEnabled)
+    {
+        loadTopologyFromJson("fpmsyncd/test_topology_1.json");
+
+        RIBNHGEntry* e238 = m_nhgmgr->getRIBNHGEntryByRIBID(238);
+        ASSERT_NE(e238, nullptr);
+
+        /* All enable_group entries are true (no backwalk triggered) */
+        EXPECT_EQ(e238->getResolvedEnableGroup()[234], true);
+        EXPECT_EQ(e238->getResolvedEnableGroup()[237], true);
+
+        std::ifstream f("fpmsyncd/test_topology_1.json");
+        json top_level = json::parse(f);
+        fib::NextHopGroupFull nhg238;
+        for (auto it = top_level.items().begin(); it != top_level.items().end(); ++it) {
+            std::string json_str = it.value().dump();
+            fib::NextHopGroupFull nhg;
+            fib::from_json_string(json_str, nhg);
+            if (nhg.id == 238) {
+                nhg238 = nhg;
+                break;
+            }
+        }
+
+        bool updated = false;
+        e238->checkNeedUpdate(nhg238, AF_INET6, updated);
+        EXPECT_FALSE(updated);
+    }
+
+    /*
+     * Global map: verify entries are indexed by gateway address during addNHGFull().
+     */
+    TEST_F(FpmSyncdNhtBackwalk, GlobalMapAddRemove)
+    {
+        loadTopologyFromJson("fpmsyncd/test_topology_1.json");
+
+        /* NHG 237 is a leaf with gateway fc06::2 — should be in global map */
+        auto& global_entries = m_nhgmgr->m_rib_nhg_table->getGlobalEntries("fc06::2");
+        EXPECT_GE(global_entries.size(), 1u);
+
+        /* Verify 237 is in the set */
+        RIBNHGEntry* e237 = m_nhgmgr->getRIBNHGEntryByRIBID(237);
+        ASSERT_NE(e237, nullptr);
+        EXPECT_NE(global_entries.find(e237), global_entries.end());
+
+        /* Remove and verify */
+        bool removed = m_nhgmgr->m_rib_nhg_table->removeGlobalEntry("fc06::2", e237);
+        EXPECT_TRUE(removed);
+
+        auto& after_remove = m_nhgmgr->m_rib_nhg_table->getGlobalEntries("fc06::2");
+        EXPECT_EQ(after_remove.find(e237), after_remove.end());
+    }
+
+    /*
+     * VRF map: verify VPN-context entries are indexed via addVrfEntry().
+     */
+    TEST_F(FpmSyncdNhtBackwalk, VrfMapAddRemove)
+    {
+        loadTopologyFromJson("fpmsyncd/test_topology_3.json");
+
+        /* Topology 3 has VPN entries with gateway 2064:100::1d */
+        auto& vrf_entries = m_nhgmgr->m_rib_nhg_table->getVrfEntries("2064:100::1d");
+        EXPECT_GE(vrf_entries.size(), 1u);
+
+        /* NHG 240 should be in VRF map (has sonic gateway obj) */
+        RIBNHGEntry* e240 = m_nhgmgr->getRIBNHGEntryByRIBID(240);
+        ASSERT_NE(e240, nullptr);
+        EXPECT_NE(vrf_entries.find(e240), vrf_entries.end());
+
+        /* Remove and verify */
+        bool removed = m_nhgmgr->m_rib_nhg_table->removeVrfEntry("2064:100::1d", e240);
+        EXPECT_TRUE(removed);
+
+        auto& after = m_nhgmgr->m_rib_nhg_table->getVrfEntries("2064:100::1d");
+        EXPECT_EQ(after.find(e240), after.end());
+    }
+
+    /*
+     * addNHGDependents: verify bidirectional dependency graph after topology load.
+     */
+    TEST_F(FpmSyncdNhtBackwalk, AddNHGDependents)
+    {
+        loadTopologyFromJson("fpmsyncd/test_topology_1.json");
+
+        /* ECMP 238 depends on {234, 237} — so 234's dependents should contain 238 */
+        RIBNHGEntry* e234 = m_nhgmgr->getRIBNHGEntryByRIBID(234);
+        ASSERT_NE(e234, nullptr);
+        auto deps234 = e234->getDependentsID();
+        EXPECT_NE(deps234.find(238), deps234.end());
+
+        /* 237's dependents should contain 238 */
+        RIBNHGEntry* e237 = m_nhgmgr->getRIBNHGEntryByRIBID(237);
+        ASSERT_NE(e237, nullptr);
+        auto deps237 = e237->getDependentsID();
+        EXPECT_NE(deps237.find(238), deps237.end());
+
+        /* 238's dependents should contain 257 (257 depends on 238) */
+        RIBNHGEntry* e238 = m_nhgmgr->getRIBNHGEntryByRIBID(238);
+        ASSERT_NE(e238, nullptr);
+        auto deps238 = e238->getDependentsID();
+        EXPECT_NE(deps238.find(257), deps238.end());
+    }
+
+    /*
+     * removeNHGDependents: verify dependency is removed.
+     */
+    TEST_F(FpmSyncdNhtBackwalk, RemoveNHGDependents)
+    {
+        loadTopologyFromJson("fpmsyncd/test_topology_1.json");
+
+        RIBNHGEntry* e234 = m_nhgmgr->getRIBNHGEntryByRIBID(234);
+        ASSERT_NE(e234, nullptr);
+
+        /* Before removal: 234's dependents contains 238 */
+        auto before = e234->getDependentsID();
+        EXPECT_NE(before.find(238), before.end());
+
+        /* Remove 238 from 234's dependents */
+        std::set<uint32_t> deps_238 = {234, 237};
+        m_nhgmgr->m_rib_nhg_table->removeNHGDependents(deps_238, 238);
+
+        /* After removal: 234's dependents no longer contains 238 */
+        auto after = e234->getDependentsID();
+        EXPECT_EQ(after.find(238), after.end());
+
+        /* 237 also cleaned up */
+        RIBNHGEntry* e237 = m_nhgmgr->getRIBNHGEntryByRIBID(237);
+        auto after237 = e237->getDependentsID();
+        EXPECT_EQ(after237.find(238), after237.end());
+    }
+
+    /*
+     * onNhtEventMsg: verify netlink message parsing triggers backwalk
+     * when curr_resolved_nhg_id == 0.
+     *
+     * Uses RouteSync directly with two pipelines (matching its constructor).
+     */
+    TEST_F(FpmSyncdNhtBackwalk, OnNhtEventMsg_Parse)
+    {
+        /* Build a NHT event JSON: nexthop fc06::2 unreachable, prev_resolved=237 */
+        std::string nht_json = R"({"rnh_prefix":"fc06::2/128","prev_resolved_prefix":"fc06::0/64","prev_resolved_nhg_id":237,"curr_resolved_prefix":"","curr_resolved_nhg_id":0})";
+
+        /* Build netlink message: RTM_NEWNHTEVENT with rtmsg header + NHA_JSON_STR attr */
+        size_t json_len = nht_json.size() + 1;
+        size_t attr_len = RTA_LENGTH(json_len);
+        size_t msg_len = NLMSG_LENGTH(sizeof(struct rtmsg)) + RTA_ALIGN(attr_len);
+
+        std::vector<uint8_t> buf(msg_len, 0);
+        struct nlmsghdr* nlh = reinterpret_cast<struct nlmsghdr*>(buf.data());
+        nlh->nlmsg_len = msg_len;
+        nlh->nlmsg_type = RTM_NEWNHTEVENT;
+
+        struct rtmsg* rtm = reinterpret_cast<struct rtmsg*>(NLMSG_DATA(nlh));
+        rtm->rtm_family = AF_INET6;
+
+        /* Add NHA_JSON_STR attribute (type=2) */
+        struct rtattr* rta = reinterpret_cast<struct rtattr*>(
+            reinterpret_cast<uint8_t*>(rtm) + NLMSG_ALIGN(sizeof(struct rtmsg)));
+        rta->rta_type = 2;  /* NHA_JSON_STR */
+        rta->rta_len = attr_len;
+        memcpy(RTA_DATA(rta), nht_json.c_str(), json_len);
+
+        int len = (int)(nlh->nlmsg_len - NLMSG_LENGTH(sizeof(struct rtmsg)));
+
+        /* Create RouteSync with two pipelines */
+        swss::DBConnector app_state_db("APPL_STATE_DB", 0);
+        swss::RedisPipeline app_state_pl(&app_state_db);
+        RouteSync rs(pipeline.get(), &app_state_pl);
+
+        /* Load topology into RouteSync's NHGMgr */
+        std::ifstream f("fpmsyncd/test_topology_1.json");
+        json top_level = json::parse(f);
+        std::map<uint32_t, fib::NextHopGroupFull> entries;
+        for (auto it = top_level.items().begin(); it != top_level.items().end(); ++it) {
+            fib::NextHopGroupFull nhg;
+            fib::from_json_string(it.value().dump(), nhg);
+            entries[nhg.id] = nhg;
+        }
+        std::set<uint32_t> added;
+        while (added.size() < entries.size()) {
+            bool progress = false;
+            for (auto& [id, nhg] : entries) {
+                if (added.count(id)) continue;
+                bool deps_met = true;
+                for (uint32_t dep : nhg.depends) {
+                    if (!added.count(dep)) { deps_met = false; break; }
+                }
+                if (!deps_met) continue;
+                rs.m_rib_fib_nhg_mgr.addNHGFull(nhg, AF_INET6);
+                added.insert(id);
+                progress = true;
+            }
+            if (!progress) break;
+        }
+
+        /* Call onNhtEventMsg */
+        rs.onNhtEventMsg(nlh, len);
+
+        /* Verify backwalk was triggered: 237 should be disabled */
+        RIBNHGEntry* e237 = rs.m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(237);
+        ASSERT_NE(e237, nullptr);
+        EXPECT_EQ(e237->getResolvedEnableGroup()[237], false);
+    }
+
+    /*
+     * onNhtEventMsg: when curr_resolved_nhg_id != 0, early return (no backwalk).
+     */
+    TEST_F(FpmSyncdNhtBackwalk, OnNhtEventMsg_NonZeroCurr)
+    {
+        /* JSON with curr_resolved_nhg_id != 0 */
+        std::string nht_json = R"({"rnh_prefix":"fc06::2/128","prev_resolved_prefix":"fc06::0/64","prev_resolved_nhg_id":237,"curr_resolved_prefix":"fc06::0/64","curr_resolved_nhg_id":238})";
+
+        size_t json_len = nht_json.size() + 1;
+        size_t attr_len = RTA_LENGTH(json_len);
+        size_t msg_len = NLMSG_LENGTH(sizeof(struct rtmsg)) + RTA_ALIGN(attr_len);
+
+        std::vector<uint8_t> buf(msg_len, 0);
+        struct nlmsghdr* nlh = reinterpret_cast<struct nlmsghdr*>(buf.data());
+        nlh->nlmsg_len = msg_len;
+        nlh->nlmsg_type = RTM_NEWNHTEVENT;
+
+        struct rtmsg* rtm = reinterpret_cast<struct rtmsg*>(NLMSG_DATA(nlh));
+        rtm->rtm_family = AF_INET6;
+
+        struct rtattr* rta = reinterpret_cast<struct rtattr*>(
+            reinterpret_cast<uint8_t*>(rtm) + NLMSG_ALIGN(sizeof(struct rtmsg)));
+        rta->rta_type = 2;
+        rta->rta_len = attr_len;
+        memcpy(RTA_DATA(rta), nht_json.c_str(), json_len);
+
+        int len = (int)(nlh->nlmsg_len - NLMSG_LENGTH(sizeof(struct rtmsg)));
+
+        swss::DBConnector app_state_db("APPL_STATE_DB", 0);
+        swss::RedisPipeline app_state_pl(&app_state_db);
+        RouteSync rs(pipeline.get(), &app_state_pl);
+
+        /* Load topology in dependency order */
+        std::ifstream f("fpmsyncd/test_topology_1.json");
+        json top_level = json::parse(f);
+        std::map<uint32_t, fib::NextHopGroupFull> entries;
+        for (auto it = top_level.items().begin(); it != top_level.items().end(); ++it) {
+            fib::NextHopGroupFull nhg;
+            fib::from_json_string(it.value().dump(), nhg);
+            entries[nhg.id] = nhg;
+        }
+        std::set<uint32_t> added;
+        while (added.size() < entries.size()) {
+            bool progress = false;
+            for (auto& [id, nhg] : entries) {
+                if (added.count(id)) continue;
+                bool deps_met = true;
+                for (uint32_t dep : nhg.depends) {
+                    if (!added.count(dep)) { deps_met = false; break; }
+                }
+                if (!deps_met) continue;
+                rs.m_rib_fib_nhg_mgr.addNHGFull(nhg, AF_INET6);
+                added.insert(id);
+                progress = true;
+            }
+            if (!progress) break;
+        }
+
+        rs.onNhtEventMsg(nlh, len);
+
+        /* 237 should remain enabled (no backwalk triggered) */
+        RIBNHGEntry* e237 = rs.m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(237);
+        ASSERT_NE(e237, nullptr);
+        EXPECT_EQ(e237->getResolvedEnableGroup()[237], true);
+    }
+
+    /*
+     * getNextHopGroupFields(backwalk=true): disabled leaves are filtered out.
+     */
+    TEST_F(FpmSyncdNhtBackwalk, GetNextHopGroupFields_BackwalkTrue)
+    {
+        loadTopologyFromJson("fpmsyncd/test_topology_1.json");
+
+        /* Disable 237 (fc06::2) */
+        m_nhgmgr->fib_nhg_trigger_node_quick_fixup("fc06::2", 237);
+
+        /* NHG 238 (ECMP depends=[234,237], resolvedGroup={234,237}) */
+        RIBNHGEntry* e238 = m_nhgmgr->getRIBNHGEntryByRIBID(238);
+        ASSERT_NE(e238, nullptr);
+
+        /* Call getNextHopGroupFields with backwalk=true */
+        int ret = e238->getNextHopGroupFields(true);
+        EXPECT_EQ(ret, 0);
+
+        /* FV vector should only contain fc08::2 (from 234), not fc06::2 (from 237) */
+        auto fv = e238->getFvVector();
+        bool found_fc08 = false;
+        bool found_fc06 = false;
+        for (const auto& kv : fv) {
+            if (fvField(kv) == "nexthop") {
+                std::string val = fvValue(kv);
+                if (val.find("fc08::2") != std::string::npos) found_fc08 = true;
+                if (val.find("fc06::2") != std::string::npos) found_fc06 = true;
+            }
+        }
+        EXPECT_TRUE(found_fc08);
+        EXPECT_FALSE(found_fc06);
+    }
+
+    /*
+     * getNextHopGroupFields(backwalk=false): all paths included regardless of state.
+     */
+    TEST_F(FpmSyncdNhtBackwalk, GetNextHopGroupFields_BackwalkFalse)
+    {
+        loadTopologyFromJson("fpmsyncd/test_topology_1.json");
+
+        /* Disable 237 (fc06::2) */
+        m_nhgmgr->fib_nhg_trigger_node_quick_fixup("fc06::2", 237);
+
+        RIBNHGEntry* e238 = m_nhgmgr->getRIBNHGEntryByRIBID(238);
+        ASSERT_NE(e238, nullptr);
+
+        /* Call getNextHopGroupFields with backwalk=false (normal zebra path) */
+        int ret = e238->getNextHopGroupFields(false);
+        EXPECT_EQ(ret, 0);
+
+        /* FV vector should contain BOTH nexthops (no filtering) */
+        auto fv = e238->getFvVector();
+        bool found_fc08 = false;
+        bool found_fc06 = false;
+        for (const auto& kv : fv) {
+            if (fvField(kv) == "nexthop") {
+                std::string val = fvValue(kv);
+                if (val.find("fc08::2") != std::string::npos) found_fc08 = true;
+                if (val.find("fc06::2") != std::string::npos) found_fc06 = true;
+            }
+        }
+        EXPECT_TRUE(found_fc08);
+        EXPECT_TRUE(found_fc06);
+    }
+
+    /*
+     * writeToDB dedup: second write with same fields is skipped via m_last_appdb_fields.
+     */
+    TEST_F(FpmSyncdNhtBackwalk, WriteToDB_Dedup)
+    {
+        loadTopologyFromJson("fpmsyncd/test_topology_1.json");
+
+        /* NHG 256 has a sonic object ID (should be writable) */
+        RIBNHGEntry* e256 = m_nhgmgr->getRIBNHGEntryByRIBID(256);
+        ASSERT_NE(e256, nullptr);
+
+        /* Trigger backwalk to generate fields and write */
+        m_nhgmgr->fib_nhg_trigger_node_quick_fixup("fc06::2", 237);
+
+        /* Capture last_appdb_fields after first write */
+        std::string first_fields = e256->getLastAppdbFields();
+        EXPECT_FALSE(first_fields.empty());
+
+        /* Trigger same backwalk again — resetEnableGroups first so it can re-walk */
+        e256->resetResolvedEnableGroup();
+        RIBNHGEntry* e238 = m_nhgmgr->getRIBNHGEntryByRIBID(238);
+        e238->resetResolvedEnableGroup();
+        RIBNHGEntry* e237 = m_nhgmgr->getRIBNHGEntryByRIBID(237);
+        e237->resetResolvedEnableGroup();
+
+        m_nhgmgr->fib_nhg_trigger_node_quick_fixup("fc06::2", 237);
+
+        /* m_last_appdb_fields should be same (dedup path hit) */
+        std::string second_fields = e256->getLastAppdbFields();
+        EXPECT_EQ(first_fields, second_fields);
+    }
+
+    /*
+     * writeToDB with changed fields: different backwalk produces different output.
+     */
+    TEST_F(FpmSyncdNhtBackwalk, WriteToDB_Changed)
+    {
+        loadTopologyFromJson("fpmsyncd/test_topology_1.json");
+
+        /* Trigger first backwalk: fc06::2 down */
+        m_nhgmgr->fib_nhg_trigger_node_quick_fixup("fc06::2", 237);
+
+        RIBNHGEntry* e256 = m_nhgmgr->getRIBNHGEntryByRIBID(256);
+        ASSERT_NE(e256, nullptr);
+        std::string first_fields = e256->getLastAppdbFields();
+
+        /* Reset and trigger different failure: 2064:200::1e down */
+        auto ids = std::set<uint32_t>{234, 237, 238, 256, 257, 258, 262, 263, 264};
+        resetAllEnableGroups(ids);
+
+        m_nhgmgr->fib_nhg_trigger_node_quick_fixup("2064:200::1e", 258);
+
+        std::string second_fields = e256->getLastAppdbFields();
+
+        /* Fields should differ (different paths disabled) */
+        EXPECT_NE(first_fields, second_fields);
+    }
 }

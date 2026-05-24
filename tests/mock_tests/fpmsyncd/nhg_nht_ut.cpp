@@ -861,9 +861,9 @@ namespace ut_fpmsyncd
         std::string nht_json = R"({"rnh_prefix":"fc06::2/128","prev_resolved_prefix":"fc06::0/64","prev_resolved_nhg_id":237,"curr_resolved_prefix":"","curr_resolved_nhg_id":0})";
 
         /* Build netlink message: RTM_NEWNHTEVENT with rtmsg header + NHA_JSON_STR attr */
-        size_t json_len = nht_json.size() + 1;
-        size_t attr_len = RTA_LENGTH(json_len);
-        size_t msg_len = NLMSG_LENGTH(sizeof(struct rtmsg)) + RTA_ALIGN(attr_len);
+        uint32_t json_len = static_cast<uint32_t>(nht_json.size() + 1);
+        unsigned short attr_len = static_cast<unsigned short>(RTA_LENGTH(json_len));
+        uint32_t msg_len = static_cast<uint32_t>(NLMSG_LENGTH(sizeof(struct rtmsg)) + RTA_ALIGN(attr_len));
 
         std::vector<uint8_t> buf(msg_len, 0);
         struct nlmsghdr* nlh = reinterpret_cast<struct nlmsghdr*>(buf.data());
@@ -892,14 +892,17 @@ namespace ut_fpmsyncd
         json top_level = json::parse(f);
         std::map<uint32_t, fib::NextHopGroupFull> entries;
         for (auto it = top_level.items().begin(); it != top_level.items().end(); ++it) {
+            std::string json_str = it.value().dump();
             fib::NextHopGroupFull nhg;
-            fib::from_json_string(it.value().dump(), nhg);
+            fib::from_json_string(json_str, nhg);
             entries[nhg.id] = nhg;
         }
         std::set<uint32_t> added;
         while (added.size() < entries.size()) {
             bool progress = false;
-            for (auto& [id, nhg] : entries) {
+            for (auto it = entries.begin(); it != entries.end(); ++it) {
+                uint32_t id = it->first;
+                fib::NextHopGroupFull& nhg = it->second;
                 if (added.count(id)) continue;
                 bool deps_met = true;
                 for (uint32_t dep : nhg.depends) {
@@ -930,9 +933,9 @@ namespace ut_fpmsyncd
         /* JSON with curr_resolved_nhg_id != 0 */
         std::string nht_json = R"({"rnh_prefix":"fc06::2/128","prev_resolved_prefix":"fc06::0/64","prev_resolved_nhg_id":237,"curr_resolved_prefix":"fc06::0/64","curr_resolved_nhg_id":238})";
 
-        size_t json_len = nht_json.size() + 1;
-        size_t attr_len = RTA_LENGTH(json_len);
-        size_t msg_len = NLMSG_LENGTH(sizeof(struct rtmsg)) + RTA_ALIGN(attr_len);
+        uint32_t json_len = static_cast<uint32_t>(nht_json.size() + 1);
+        unsigned short attr_len = static_cast<unsigned short>(RTA_LENGTH(json_len));
+        uint32_t msg_len = static_cast<uint32_t>(NLMSG_LENGTH(sizeof(struct rtmsg)) + RTA_ALIGN(attr_len));
 
         std::vector<uint8_t> buf(msg_len, 0);
         struct nlmsghdr* nlh = reinterpret_cast<struct nlmsghdr*>(buf.data());
@@ -959,14 +962,17 @@ namespace ut_fpmsyncd
         json top_level = json::parse(f);
         std::map<uint32_t, fib::NextHopGroupFull> entries;
         for (auto it = top_level.items().begin(); it != top_level.items().end(); ++it) {
+            std::string json_str = it.value().dump();
             fib::NextHopGroupFull nhg;
-            fib::from_json_string(it.value().dump(), nhg);
+            fib::from_json_string(json_str, nhg);
             entries[nhg.id] = nhg;
         }
         std::set<uint32_t> added;
         while (added.size() < entries.size()) {
             bool progress = false;
-            for (auto& [id, nhg] : entries) {
+            for (auto it = entries.begin(); it != entries.end(); ++it) {
+                uint32_t id = it->first;
+                fib::NextHopGroupFull& nhg = it->second;
                 if (added.count(id)) continue;
                 bool deps_met = true;
                 for (uint32_t dep : nhg.depends) {

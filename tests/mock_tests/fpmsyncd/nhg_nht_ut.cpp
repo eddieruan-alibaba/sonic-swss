@@ -1008,8 +1008,10 @@ namespace ut_fpmsyncd
         RIBNHGEntry* e238 = m_nhgmgr->getRIBNHGEntryByRIBID(238);
         ASSERT_NE(e238, nullptr);
 
-        /* Call getNextHopGroupFields with backwalk=true */
-        int ret = e238->getNextHopGroupFields(true);
+        /* Call syncFvVector with backwalk=true — this calls getNHGFields(true) →
+         * getNextHopGroupFields(true) with leaf-disable filtering,
+         * then rebuilds m_fvVector with only enabled paths. */
+        int ret = e238->syncFvVector(true);
         EXPECT_EQ(ret, 0);
 
         /* FV vector should only contain fc08::2 (from 234), not fc06::2 (from 237) */
@@ -1040,8 +1042,10 @@ namespace ut_fpmsyncd
         RIBNHGEntry* e238 = m_nhgmgr->getRIBNHGEntryByRIBID(238);
         ASSERT_NE(e238, nullptr);
 
-        /* Call getNextHopGroupFields with backwalk=false (normal zebra path) */
-        int ret = e238->getNextHopGroupFields(false);
+        /* Call syncFvVector with backwalk=false (normal zebra path) —
+         * this calls getNHGFields(false) → getNextHopGroupFields(false)
+         * and rebuilds m_fvVector with all paths included. */
+        int ret = e238->syncFvVector(false);
         EXPECT_EQ(ret, 0);
 
         /* FV vector should contain BOTH nexthops (no filtering) */

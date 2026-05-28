@@ -208,7 +208,7 @@ TEST_F(NHGWarmRestartAssistTest, InsertNHGToMapChangedEntry)
     existing.is_single = true;
     existing.is_shared = false;
     existing.af = AF_INET;
-    existing.sonic_nhg_key_hash = "old_hash_that_wont_match";
+    existing.sonic_nhg_key_hash = "0|10.0.0.1|||||";
     existing.state = NHGWarmRestartAssist::NHG_STALE;
     m_assist->m_nhgCacheMap[80] = existing;
 

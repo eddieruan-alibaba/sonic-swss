@@ -3,6 +3,7 @@
 #include <linux/rtnetlink.h>
 #include <iostream>
 #include <cstring>
+#include <sstream>
 
 #define private public
 #include "nhgmgr.h"

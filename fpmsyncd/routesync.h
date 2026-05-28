@@ -13,6 +13,7 @@
 #include <bits/stdc++.h>
 #include <linux/version.h>
 #include "nhgmgr.h"
+#include "nhg_warm_restart_assist.h"
 
 #include <netlink/route/route.h>
 
@@ -48,7 +49,7 @@ class RouteSync : public NetMsg
 public:
     enum { MAX_ADDR_SIZE = 64 };
 
-    RouteSync(RedisPipeline *pipeline, RedisPipeline *app_state_pipeline);
+    RouteSync(RedisPipeline *pipeline, RedisPipeline *app_state_pipeline, DBConnector *stateDb = nullptr);
 
     virtual void onMsg(int nlmsg_type, struct nl_object *obj);
 
@@ -97,6 +98,21 @@ public:
         return m_warmStartHelper;
     }
 
+    void setNHGWarmRestartAssist(NHGWarmRestartAssist *assist)
+    {
+        m_nhgWarmRestartAssist = assist;
+    }
+
+    NHGWarmRestartAssist* getNHGWarmRestartAssist()
+    {
+        return m_nhgWarmRestartAssist;
+    }
+
+    NHGMgr& getNHGMgr()
+    {
+        return m_rib_fib_nhg_mgr;
+    }
+
 private:
     /* ZMQ client */
     shared_ptr<ZmqClient> m_zmqClient;
@@ -126,6 +142,9 @@ private:
     /* APPL_STATE_DB pipeline and NHG Full debug state table */
     RedisPipeline *m_app_state_pipeline;
     swss::Table m_nhgFullStateTable;
+
+    /* NHG warm restart assist */
+    NHGWarmRestartAssist *m_nhgWarmRestartAssist{nullptr};
 
     bool                m_isSuppressionEnabled{false};
     bool                m_nhgFibEnabled{false};

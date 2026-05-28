@@ -4,16 +4,22 @@
 #include "dbconnector.h"
 #include "ipprefix.h"
 #include "producerstatetable.h"
+#include "table.h"
 #include <nexthopgroup/nexthopgroupfull.h>
 #include <nexthopgroup/nexthopgroupfull_json.h>
 #include <nexthopgroup/nexthopgroup_debug.h>
 
 #include <string.h>
 #include <algorithm>
+#include <sstream>
+#include <set>
 
 #define NHG_DELIMITER ','
 #define NEXTHOP_GROUP_RECEIVED_FLAG (1 << 10)
 #define CHECK_FLAG(V,F)      ((V) & (F))
+
+#define FPMSYNCD_NHG_WARM_STATE_TABLE "FPMSYNCD_NHG_WARM_TABLE"
+#define FPMSYNCD_NHG_WARM_ID_STATE_KEY "_SONIC_ID_STATE_"
 
 
 /* Forward declaration for unit test friend access */
@@ -109,6 +115,9 @@ using namespace std;
             return !(*this == b);
         }
 
+        std::string serialize() const;
+        static SonicNHGObjectKey deserialize(const std::string &str);
+
         static SonicNHGObjectKey createSonicPICContentObjectKey(SonicPICContentObject obj);
 
         static int createSonicPICContentObjectKey(RIBNHGEntry *entry, SonicNHGObjectKey &key_out);
@@ -185,14 +194,16 @@ using namespace std;
         /*
          * recover Sonic Object ID map from DB
          * used in warm reboot
-         * not implemented
          */
-        int recoverSonicIDMapFromDB();
+        int recoverSonicIDMapFromDB(uint32_t nextId, const std::set<uint32_t> &allocatedIds);
 
         /*
          * check if the id is in used
          */
         bool isInUsed(uint32_t id);
+
+        uint32_t getNextId() const { return g_id; }
+        std::set<uint32_t> getAllocatedIds() const;
 
     private:
         map<uint32_t, uint32_t> m_id_map;
@@ -204,6 +215,7 @@ using namespace std;
     class SonicIDMgr {
         /* Allow unit test fixture to access private members for white-box testing */
         friend struct ut_fpmsyncd::FpmSyncdNhgMgr;
+        friend class NHGMgr;
 
     public:
 
@@ -848,7 +860,8 @@ using namespace std;
         friend struct ut_fpmsyncd::FpmSyncdNhgMgr;
 
     public:
-        NHGMgr(RedisPipeline *pipeline, const std::string &nexthopTableName, const std::string &picTableName, bool isStateTable);
+        NHGMgr(RedisPipeline *pipeline, const std::string &nexthopTableName, const std::string &picTableName, bool isStateTable,
+               swss::DBConnector *stateDb = nullptr);
         ~NHGMgr() {
             if (m_rib_nhg_table != nullptr) {
                 m_rib_nhg_table->cleanUp();
@@ -858,6 +871,7 @@ using namespace std;
                 m_sonic_nhg_table->cleanUp();
                 delete m_sonic_nhg_table;
             }
+            delete m_warmStateTable;
         };
 
         // add NHG into FIB block
@@ -890,6 +904,18 @@ using namespace std;
         // Not implemented
         RIBNHGEntry *getRIBNHGEntryByKey(string key);
 
+        // Warm restart: recover internal state from STATE_DB
+        int recoverFromWarmState();
+
+        // Warm restart: get the STATE_DB warm state table
+        swss::Table* getWarmStateTable() { return m_warmStateTable; }
+
+        // Warm restart: get SonicIDMgr for recovery
+        SonicIDMgr& getSonicIDMgr() { return m_sonic_id_manager; }
+
+        // Warm restart: get RIBNHGTable for recovery
+        RIBNHGTable* getRIBNHGTable() { return m_rib_nhg_table; }
+
     private:
         // Map zebra NHG id to received zebra_dplane_ctx + SONIC Context (a.k.a SONIC ZEBRA NHG)
         RIBNHGTable *m_rib_nhg_table;
@@ -899,6 +925,10 @@ using namespace std;
 
         // Manage Sonic Object ID allocation
         SonicIDMgr m_sonic_id_manager;
+
+        // STATE_DB table for warm restart persistence (nullable if stateDb not provided)
+        swss::Table *m_warmStateTable = nullptr;
+        swss::DBConnector *m_stateDb = nullptr;
 
         // process of adding new NHG Full
         int addNewNHGFull(NextHopGroupFull nhg, uint8_t af);
@@ -914,6 +944,15 @@ using namespace std;
 
         // dump NHG Group Full for debugging
         void dumpNHGGroupFull(NextHopGroupFull nhg);
+
+        // Warm restart: persist NHG entry state to STATE_DB
+        void persistNHGState(uint32_t zebraId, RIBNHGEntry *entry);
+
+        // Warm restart: remove NHG entry state from STATE_DB
+        void removeNHGState(uint32_t zebraId);
+
+        // Warm restart: persist SonicIDAllocator state to STATE_DB
+        void persistSonicIDState();
 
     };
 

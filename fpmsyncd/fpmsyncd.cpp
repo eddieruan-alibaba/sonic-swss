@@ -11,6 +11,7 @@
 #include "fpmsyncd/fpmlink.h"
 #include "fpmsyncd/fpmsyncd.h"
 #include "fpmsyncd/routesync.h"
+#include "nhg_warm_restart_assist.h"
 
 #include <netlink/route/route.h>
 #include <nexthopgroup/nexthopgroupfull.h>
@@ -85,11 +86,12 @@ int main(int argc, char **argv)
     DBConnector applStateDb("APPL_STATE_DB", 0);
     std::unique_ptr<NotificationConsumer> routeResponseChannel;
 
+    DBConnector stateDb("STATE_DB", 0);
+
     RedisPipeline pipeline(&db, ROUTE_SYNC_PPL_SIZE);
     RedisPipeline app_state_pipeline(&applStateDb);
-    RouteSync sync(&pipeline, &app_state_pipeline);
+    RouteSync sync(&pipeline, &app_state_pipeline, &stateDb);
 
-    DBConnector stateDb("STATE_DB", 0);
     Table bgpStateTable(&stateDb, STATE_BGP_TABLE_NAME);
 
     NetLink netlink;
@@ -153,6 +155,17 @@ int main(int argc, char **argv)
 
             /* If warm-restart feature is enabled, execute 'restoration' logic */
             bool warmStartEnabled = sync.getWarmStartHelper().checkAndStart();
+
+            std::unique_ptr<NHGWarmRestartAssist> nhgWarmAssist;
+            if (warmStartEnabled && sync.isNhgFibEnabled())
+            {
+                nhgWarmAssist = std::make_unique<NHGWarmRestartAssist>(
+                    &pipeline, "fpmsyncd", "bgp", &sync.getNHGMgr(), &stateDb);
+                nhgWarmAssist->readNHGStateFromDB();
+                sync.setNHGWarmRestartAssist(nhgWarmAssist.get());
+                SWSS_LOG_NOTICE("NHG warm restart: initialized and state loaded from DB");
+            }
+
             if (warmStartEnabled)
             {
                 /* Obtain warm-restart timer defined for routing application */
@@ -209,6 +222,13 @@ int main(int argc, char **argv)
                     else
                     {
                         SWSS_LOG_NOTICE("Warm-Restart EOIU hold timer expired.");
+                    }
+
+                    if (nhgWarmAssist && nhgWarmAssist->isNHGWarmStartInProgress())
+                    {
+                        nhgWarmAssist->reconcileNHG();
+                        pipeline.flush();
+                        SWSS_LOG_NOTICE("NHG warm restart: reconciliation done before route reconcile");
                     }
 
                     sync.onWarmStartEnd(applStateDb);
@@ -328,6 +348,7 @@ int main(int argc, char **argv)
         catch (FpmLink::FpmConnectionClosedException &e)
         {
             cout << "Connection lost, reconnecting..." << endl;
+            sync.setNHGWarmRestartAssist(nullptr);
         }
     }
 

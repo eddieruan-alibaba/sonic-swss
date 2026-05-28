@@ -258,6 +258,7 @@ tests_fpmsyncd_SOURCES = fpmsyncd/test_fpmlink.cpp \
                          fpmsyncd/receive_srv6_steer_routes_ut.cpp \
                          fpmsyncd/receive_srv6_mysids_ut.cpp \
                          fpmsyncd/nhgmgr_ut.cpp \
+                         fpmsyncd/nhg_warm_restart_assist_ut.cpp \
                          fpmsyncd/ut_helpers_fpmsyncd.cpp \
                          fake_netlink.cpp \
                          fake_warmstarthelper.cpp \
@@ -266,9 +267,10 @@ tests_fpmsyncd_SOURCES = fpmsyncd/test_fpmlink.cpp \
                          mock_table.cpp \
                          mock_hiredis.cpp \
                          $(top_srcdir)/lib/orch_zmq_config.cpp \
-                         $(top_srcdir)/warmrestart/ \
+                         $(top_srcdir)/warmrestart/warmRestartAssist.cpp \
                          $(top_srcdir)/fpmsyncd/fpmlink.cpp \
                          $(top_srcdir)/fpmsyncd/nhgmgr.cpp \
+                         $(top_srcdir)/fpmsyncd/nhg_warm_restart_assist.cpp \
                          $(top_srcdir)/fpmsyncd/routesync.cpp
 
 tests_fpmsyncd_INCLUDES = $(tests_INCLUDES) -I$(top_srcdir)/tests_fpmsyncd -I$(top_srcdir)/lib -I$(top_srcdir)/warmrestart -I$(top_srcdir)/fpmsyncd

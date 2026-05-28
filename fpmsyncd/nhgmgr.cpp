@@ -138,11 +138,17 @@ static bool compareNHGSRv6Fields(const NextHopGroupFull *new_nhg, const NextHopG
     return true;
 }
 
-NHGMgr::NHGMgr(RedisPipeline *pipeline, const std::string &nexthopTableName, const std::string &picTableName, bool isStateTable) {
+NHGMgr::NHGMgr(RedisPipeline *pipeline, const std::string &nexthopTableName, const std::string &picTableName, bool isStateTable,
+               swss::DBConnector *stateDb) {
     m_rib_nhg_table = new RIBNHGTable(pipeline, nexthopTableName, isStateTable);
     m_sonic_nhg_table = new SonicPICContentTable(pipeline, picTableName, isStateTable);
     m_sonic_id_manager.init({SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC, SONIC_NHG_OBJ_TYPE_NHG_NORMAL});
     m_rib_nhg_table->setSonicIDManager(&m_sonic_id_manager);
+
+    m_stateDb = stateDb;
+    if (m_stateDb != nullptr) {
+        m_warmStateTable = new swss::Table(m_stateDb, FPMSYNCD_NHG_WARM_STATE_TABLE);
+    }
 
     // register SWSS logger as the callback for sonic_fib logs
     registerSwssLogger();
@@ -171,6 +177,11 @@ int NHGMgr::addNHGFull(NextHopGroupFull nhg, uint8_t af) {
             SWSS_LOG_ERROR("Failed to add NHG %d", nhg.id);
             return ret;
         }
+    }
+
+    RIBNHGEntry *entry = m_rib_nhg_table->getEntry(nhg.id);
+    if (entry != nullptr) {
+        persistNHGState(nhg.id, entry);
     }
     return 0;
 }
@@ -473,6 +484,8 @@ int NHGMgr::delNHGFull(uint32_t id) {
     if (m_rib_nhg_table->delEntry(id) != 0) {
         return -1;
     }
+
+    removeNHGState(id);
     return 0;
 }
 
@@ -1768,11 +1781,20 @@ bool SonicIDAllocator::isInUsed(uint32_t id) {
     return false;
 }
 
-/*
- * recover SonicIDAllocator from DB
- * not implemented
- */
-int SonicIDAllocator::recoverSonicIDMapFromDB() {
+std::set<uint32_t> SonicIDAllocator::getAllocatedIds() const {
+    std::set<uint32_t> ids;
+    for (const auto &pair : m_id_map) {
+        ids.insert(pair.first);
+    }
+    return ids;
+}
+
+int SonicIDAllocator::recoverSonicIDMapFromDB(uint32_t nextId, const std::set<uint32_t> &allocatedIds) {
+    g_id = nextId;
+    m_id_map.clear();
+    for (uint32_t id : allocatedIds) {
+        m_id_map[id] = 1;
+    }
     return 0;
 }
 
@@ -1822,5 +1844,209 @@ int SonicNHGObjectKey::createSonicPICContentObjectKey(RIBNHGEntry *entry, SonicN
         return ret;
     }
     key_out = createSonicPICContentObjectKey(obj);
+    return 0;
+}
+
+/*
+ * Serialize SonicNHGObjectKey to a string for STATE_DB persistence.
+ * Format: type|nexthop|vpnSid|segSrc|ifName|member1_id:member1_weight,member2_id:member2_weight,...
+ */
+std::string SonicNHGObjectKey::serialize() const {
+    std::ostringstream oss;
+    oss << static_cast<int>(type) << "|"
+        << nexthop << "|"
+        << vpnSid << "|"
+        << segSrc << "|"
+        << ifName << "|";
+
+    auto sorted = getSortedGroupMember();
+    for (size_t i = 0; i < sorted.size(); i++) {
+        if (i > 0) oss << ",";
+        oss << sorted[i].first << ":" << sorted[i].second;
+    }
+    return oss.str();
+}
+
+/*
+ * Deserialize SonicNHGObjectKey from a string stored in STATE_DB.
+ */
+SonicNHGObjectKey SonicNHGObjectKey::deserialize(const std::string &str) {
+    SonicNHGObjectKey key;
+    std::istringstream iss(str);
+    std::string token;
+
+    // type
+    if (std::getline(iss, token, '|')) {
+        key.type = static_cast<sonicNhgObjType>(std::stoi(token));
+    }
+    // nexthop
+    if (std::getline(iss, token, '|')) {
+        key.nexthop = token;
+    }
+    // vpnSid
+    if (std::getline(iss, token, '|')) {
+        key.vpnSid = token;
+    }
+    // segSrc
+    if (std::getline(iss, token, '|')) {
+        key.segSrc = token;
+    }
+    // ifName
+    if (std::getline(iss, token, '|')) {
+        key.ifName = token;
+    }
+    // groupMember
+    if (std::getline(iss, token, '|')) {
+        if (!token.empty()) {
+            std::istringstream memberStream(token);
+            std::string memberPair;
+            while (std::getline(memberStream, memberPair, ',')) {
+                size_t colonPos = memberPair.find(':');
+                if (colonPos != std::string::npos) {
+                    uint32_t id = static_cast<uint32_t>(std::stoul(memberPair.substr(0, colonPos)));
+                    uint32_t weight = static_cast<uint32_t>(std::stoul(memberPair.substr(colonPos + 1)));
+                    key.groupMember.push_back(std::make_pair(id, weight));
+                }
+            }
+        }
+    }
+    return key;
+}
+
+/*
+ * Persist NHG entry state to STATE_DB for warm restart recovery.
+ */
+void NHGMgr::persistNHGState(uint32_t zebraId, RIBNHGEntry *entry) {
+    if (m_warmStateTable == nullptr) {
+        return;
+    }
+
+    std::vector<FieldValueTuple> fvs;
+    fvs.emplace_back("sonic_obj_id", std::to_string(entry->getSonicObjID()));
+    fvs.emplace_back("sonic_pic_id", std::to_string(entry->getSonicPICObjID()));
+    fvs.emplace_back("sonic_obj_type", std::to_string(static_cast<int>(entry->getSonicObjType())));
+    fvs.emplace_back("is_single", entry->isSingleNexthop() ? "1" : "0");
+    fvs.emplace_back("is_shared", entry->isSharedSonicNHG() ? "1" : "0");
+    fvs.emplace_back("af", std::to_string(entry->getAddressFamily()));
+    fvs.emplace_back("sonic_nhg_key_hash", entry->getSonicNHGObjectKey().serialize());
+
+    m_warmStateTable->set(std::to_string(zebraId), fvs);
+
+    persistSonicIDState();
+}
+
+/*
+ * Remove NHG entry state from STATE_DB.
+ */
+void NHGMgr::removeNHGState(uint32_t zebraId) {
+    if (m_warmStateTable == nullptr) {
+        return;
+    }
+
+    m_warmStateTable->del(std::to_string(zebraId));
+
+    persistSonicIDState();
+}
+
+/*
+ * Persist SonicIDAllocator state (next_id counters and allocated ID sets) to STATE_DB.
+ */
+void NHGMgr::persistSonicIDState() {
+    if (m_warmStateTable == nullptr) {
+        return;
+    }
+
+    SonicIDAllocator *nhgAlloc = m_sonic_id_manager.getAllocator(SONIC_NHG_OBJ_TYPE_NHG_NORMAL);
+    SonicIDAllocator *picAlloc = m_sonic_id_manager.getAllocator(SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC);
+
+    std::vector<FieldValueTuple> fvs;
+
+    if (nhgAlloc != nullptr) {
+        fvs.emplace_back("nhg_next_id", std::to_string(nhgAlloc->getNextId()));
+        std::ostringstream nhgIds;
+        auto allocatedIds = nhgAlloc->getAllocatedIds();
+        bool first = true;
+        for (uint32_t id : allocatedIds) {
+            if (!first) nhgIds << ",";
+            nhgIds << id;
+            first = false;
+        }
+        fvs.emplace_back("nhg_allocated_ids", nhgIds.str());
+    }
+
+    if (picAlloc != nullptr) {
+        fvs.emplace_back("pic_next_id", std::to_string(picAlloc->getNextId()));
+        std::ostringstream picIds;
+        auto allocatedIds = picAlloc->getAllocatedIds();
+        bool first = true;
+        for (uint32_t id : allocatedIds) {
+            if (!first) picIds << ",";
+            picIds << id;
+            first = false;
+        }
+        fvs.emplace_back("pic_allocated_ids", picIds.str());
+    }
+
+    m_warmStateTable->set(FPMSYNCD_NHG_WARM_ID_STATE_KEY, fvs);
+}
+
+/*
+ * Recover NHG manager internal state from STATE_DB after warm restart.
+ * Rebuilds SonicIDAllocator state so that new allocations don't conflict
+ * with previously assigned IDs still referenced by APP_DB entries.
+ */
+int NHGMgr::recoverFromWarmState() {
+    if (m_warmStateTable == nullptr) {
+        SWSS_LOG_ERROR("NHGMgr::recoverFromWarmState: warm state table is null");
+        return -1;
+    }
+
+    // Step 1: Recover SonicIDAllocator state
+    std::vector<FieldValueTuple> idFvs;
+    std::string idStateKey = FPMSYNCD_NHG_WARM_ID_STATE_KEY;
+    if (!m_warmStateTable->get(idStateKey, idFvs)) {
+        SWSS_LOG_WARN("NHGMgr::recoverFromWarmState: no ID state found in STATE_DB");
+        return -1;
+    }
+
+    uint32_t nhgNextId = 1, picNextId = 1;
+    std::set<uint32_t> nhgAllocatedIds, picAllocatedIds;
+
+    for (const auto &fv : idFvs) {
+        const std::string &field = fvField(fv);
+        const std::string &value = fvValue(fv);
+
+        if (field == "nhg_next_id") {
+            nhgNextId = static_cast<uint32_t>(std::stoul(value));
+        } else if (field == "pic_next_id") {
+            picNextId = static_cast<uint32_t>(std::stoul(value));
+        } else if (field == "nhg_allocated_ids" && !value.empty()) {
+            std::istringstream iss(value);
+            std::string tok;
+            while (std::getline(iss, tok, ',')) {
+                nhgAllocatedIds.insert(static_cast<uint32_t>(std::stoul(tok)));
+            }
+        } else if (field == "pic_allocated_ids" && !value.empty()) {
+            std::istringstream iss(value);
+            std::string tok;
+            while (std::getline(iss, tok, ',')) {
+                picAllocatedIds.insert(static_cast<uint32_t>(std::stoul(tok)));
+            }
+        }
+    }
+
+    SonicIDAllocator *nhgAlloc = m_sonic_id_manager.getAllocator(SONIC_NHG_OBJ_TYPE_NHG_NORMAL);
+    SonicIDAllocator *picAlloc = m_sonic_id_manager.getAllocator(SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC);
+
+    if (nhgAlloc != nullptr) {
+        nhgAlloc->recoverSonicIDMapFromDB(nhgNextId, nhgAllocatedIds);
+    }
+    if (picAlloc != nullptr) {
+        picAlloc->recoverSonicIDMapFromDB(picNextId, picAllocatedIds);
+    }
+
+    SWSS_LOG_NOTICE("NHGMgr::recoverFromWarmState: recovered ID allocators (nhg_next=%u, pic_next=%u, nhg_count=%zu, pic_count=%zu)",
+                    nhgNextId, picNextId, nhgAllocatedIds.size(), picAllocatedIds.size());
+
     return 0;
 }

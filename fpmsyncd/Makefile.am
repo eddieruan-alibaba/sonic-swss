@@ -10,6 +10,7 @@ endif
 
 fpmsyncd_SOURCES = fpmsyncd.cpp fpmlink.cpp routesync.cpp nhgmgr.cpp nhg_warm_restart_assist.cpp \
                     $(top_srcdir)/warmrestart/warmRestartHelper.cpp \
+                    $(top_srcdir)/warmrestart/warmRestartAssist.cpp \
                     $(top_srcdir)/lib/orch_zmq_config.cpp
 
 fpmsyncd_CFLAGS = $(DBGFLAGS) $(AM_CFLAGS) $(CFLAGS_COMMON) $(CFLAGS_ASAN)

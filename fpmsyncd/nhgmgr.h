@@ -195,7 +195,7 @@ using namespace std;
 
     /* Sonic ID Manager, used to manage all kinds of Sonic NHG id for Sonic NHG Object */
     class SonicIDMgr {
-        /* Allow unit test fixture to access private members for white-box testing */
+        /* Allow unit test fixture to access private members for testing */
         friend struct ut_fpmsyncd::FpmSyncdNhgMgr;
 
     public:
@@ -250,7 +250,7 @@ using namespace std;
 
     /* Sonic PIC entry */
     class SonicPICContentEntry {
-        /* Allow unit test fixture to access private members for white-box testing */
+        /* Allow unit test fixture to access private members for testing */
         friend struct ut_fpmsyncd::FpmSyncdNhgMgr;
 
     public:
@@ -417,7 +417,7 @@ using namespace std;
 
     /* RIB NHG entry */
     class RIBNHGEntry {
-        /* Allow unit test fixture to access private members for white-box testing */
+        /* Allow unit test fixture to access private members for testing */
         friend struct ut_fpmsyncd::FpmSyncdNhgMgr;
 
     public:
@@ -454,12 +454,14 @@ using namespace std;
          * contain <ribID, weight> pair
          */
         unordered_map<uint32_t, uint8_t> getGroup();
+        unordered_map<uint32_t, uint16_t> getGroup() { return m_group; }
 
         /*
          * get the resolved group of RIBNHGEntry
          * contain <ribID, weight> pair
          */
         unordered_map<uint32_t, uint8_t> getResolvedGroup() { return m_resolvedGroup; }
+        unordered_map<uint32_t, uint16_t> getResolvedGroup() { return m_resolvedGroup; }
 
         /*
          * get the DB FV vector of RIBNHGEntry
@@ -639,13 +641,13 @@ using namespace std;
          * full group of the entry
          * contain <ribID, weight> pair
          */
-        unordered_map<uint32_t, uint8_t> m_group;
+        unordered_map<uint32_t, uint16_t> m_group;
 
         /*
          * resolved group of the entry
          * contain <ribID, weight> pair
          */
-        unordered_map<uint32_t, uint8_t> m_resolvedGroup;
+        unordered_map<uint32_t, uint16_t> m_resolvedGroup;
 
         /*
          * depends of the entry
@@ -756,7 +758,7 @@ using namespace std;
 
     /* RIB NHG table */
     class RIBNHGTable {
-        /* Allow unit test fixture to access private members for white-box testing */
+        /* Allow unit test fixture to access private members for testing */
         friend struct ut_fpmsyncd::FpmSyncdNhgMgr;
 
     public:
@@ -824,7 +826,7 @@ using namespace std;
     };
 
     class NHGMgr {
-        /* Allow unit test fixture to access private members for white-box testing */
+        /* Allow unit test fixture to access private members for testing */
         friend struct ut_fpmsyncd::FpmSyncdNhgMgr;
 
     public:

@@ -1144,8 +1144,10 @@ void RIBNHGEntry::checkNeedCreateSonicNHGObj() {
             m_create_sonic_nhg_obj = true;
         }else{
             m_create_sonic_nhg_obj = false;
-            m_sonic_obj_id = id;
-            m_table->addSonicNHGObjectRef(m_sonic_nhg_key);
+            if (m_sonic_obj_id != id) {
+                m_sonic_obj_id = id;
+                m_table->addSonicNHGObjectRef(m_sonic_nhg_key);
+            }
         }
     }else{
         /*

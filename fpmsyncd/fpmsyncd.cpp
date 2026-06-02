@@ -8,6 +8,7 @@
 #include "notificationconsumer.h"
 #include "subscriberstatetable.h"
 #include "warmRestartHelper.h"
+#include "recorder.h"
 #include "fpmsyncd/fpmlink.h"
 #include "fpmsyncd/fpmsyncd.h"
 #include "fpmsyncd/routesync.h"
@@ -75,6 +76,16 @@ static bool eoiuFlagsSet(Table &bgpStateTable)
 int main(int argc, char **argv)
 {
     swss::Logger::linkToDbNative("fpmsyncd");
+
+    /*
+     * fpmsync.rec: record zebra NHG/NHT events (NHGFULL add/del, NHT) coming
+     * from zebra to fpmsyncd, for debugging PIC/NHG convergence. On by default,
+     * written to /var/log/swss/fpmsync.rec.
+     */
+    Recorder::Instance().fpmsync.setRecord(true);
+    Recorder::Instance().fpmsync.setLocation("/var/log/swss");
+    Recorder::Instance().fpmsync.setFileName(Recorder::FPMSYNC_FNAME);
+    Recorder::Instance().fpmsync.startRec(false);
 
     const auto routeResponseChannelName = std::string("APPL_DB_") + APP_ROUTE_TABLE_NAME + "_RESPONSE_CHANNEL";
 

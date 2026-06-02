@@ -603,6 +603,10 @@ bool RIBNHGEntry::checkNeedUpdate(NextHopGroupFull newNhg, uint8_t afNew) {
         }
     }
 
+    if (m_updated_via_backwalk) {
+        return true;
+    }
+
     return false;
 }
 
@@ -684,8 +688,12 @@ int RIBNHGTable::updateEntry(NextHopGroupFull nhg, uint8_t af, bool &updated) {
             return ret;
         }
 
-        // A valid NHGFULL from zebra means this NHG is live.
-        // Clear stale PIC disable flags in all dependents that track this NHG.
+        // A valid NHGFULL from zebra means this NHG is live again. Clear stale
+        // PIC disable flags in all dependents that track this NHG so a later
+        // backwalk's isAllDisabled() check sees correct state. We do NOT mark
+        // the dependent as backwalk-updated: re-enabling its flag does not by
+        // itself change its HW NHG. The backwalk flag is reserved for real
+        // backwalk-driven divergence.
         std::set<uint32_t> dependents = entry->getDependentsID();
         for (uint32_t dep_id : dependents) {
             RIBNHGEntry* dep_entry = getEntry(dep_id);
@@ -927,7 +935,10 @@ int RIBNHGEntry::setEntry(NextHopGroupFull nhg, uint8_t af) {
         return -1;
     }
 
-    /* Initialize m_resolved_enable_group: all paths enabled on add/update */
+    /* Initialize m_resolved_enable_group: all paths enabled on add/update.
+     * A normal NHG update from zebra is authoritative, so clear any sticky
+     * PIC backwalk marker as well. */
+    m_updated_via_backwalk = false;
     m_resolved_enable_group.clear();
     if (m_depends.empty()) {
         /* Leaf NHG: add self-reference so walk_spec can mark leaf disabled */
@@ -1873,7 +1884,10 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_
     for (uint32_t dep_id : depends) {
         RIBNHGEntry* dep_entry = ctx.rib_nhg_table->getEntry(dep_id);
         if (dep_entry && isAllDisabled(dep_entry)) {
-            enable_group[dep_id] = false;
+            if (enable_group[dep_id]) {
+                enable_group[dep_id] = false;
+                entry->setUpdatedViaBackwalk();
+            }
         }
         SWSS_LOG_NOTICE("Check depend %d, enable flag %d", dep_id, (int) enable_group[dep_id]);
     }
@@ -1885,6 +1899,7 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_
         if (depends.empty()) {
             /* Leaf NHG: mark self-reference disabled */
             enable_group[entry_id] = false;
+            entry->setUpdatedViaBackwalk();
             ctx.modified_node_set.insert(entry_id);
             SWSS_LOG_DEBUG("PIC: walk_spec leaf node %u gateway match, disabled self", entry_id);
             return true;
@@ -1893,6 +1908,7 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_
             for (auto& kv : enable_group) {
                 kv.second = false;
             }
+            entry->setUpdatedViaBackwalk();
             is_relevant = true;
         }
     }
@@ -1978,7 +1994,10 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup_sonic_nhg(RIBNHGEntry* entry
     for (uint32_t dep_id : depends) {
         RIBNHGEntry* dep_entry = ctx.rib_nhg_table->getEntry(dep_id);
         if (dep_entry && isAllDisabled(dep_entry)) {
-            enable_group[dep_id] = false;
+            if (enable_group[dep_id]) {
+                enable_group[dep_id] = false;
+                entry->setUpdatedViaBackwalk();
+            }
         }
     }
 
@@ -1988,12 +2007,14 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup_sonic_nhg(RIBNHGEntry* entry
     if (entry->getGatewayAddress() == nexthop) {
         if (depends.empty()) {
             enable_group[entry_id] = false;
+            entry->setUpdatedViaBackwalk();
             ctx.modified_node_set.insert(entry_id);
             return true;
         } else {
             for (auto& kv : enable_group) {
                 kv.second = false;
             }
+            entry->setUpdatedViaBackwalk();
             is_relevant = true;
         }
     }

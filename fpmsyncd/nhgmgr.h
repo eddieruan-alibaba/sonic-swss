@@ -591,6 +591,21 @@ using namespace std;
             return m_resolved_enable_group;
         }
 
+        // mark that this entry's enable_group was changed by a PIC backwalk
+        void setUpdatedViaBackwalk() {
+            m_updated_via_backwalk = true;
+        }
+
+        // query whether this entry was modified by a PIC backwalk
+        bool isUpdatedViaBackwalk() const {
+            return m_updated_via_backwalk;
+        }
+
+        // clear the backwalk flag (on a normal NHG update from zebra)
+        void clearUpdatedViaBackwalk() {
+            m_updated_via_backwalk = false;
+        }
+
         // get cached APPDB fields for dedup
         const string& getLastAppdbFields() const {
             return m_last_appdb_fields;
@@ -729,6 +744,15 @@ using namespace std;
          *   is added so walk_spec can mark the leaf disabled.
          */
         unordered_map<uint32_t, bool> m_resolved_enable_group;
+
+        /*
+         * True if this entry's m_resolved_enable_group was modified by a PIC
+         * backwalk (fib_nhg_walk_spec_*). Set during backwalk, cleared only on
+         * a normal NHG update from zebra (setEntry). checkNeedUpdate consults
+         * this flag to force a HW re-push even when all enable flags were since
+         * reset to true by a cascading NHGFULL update of a dependency.
+         */
+        bool m_updated_via_backwalk = false;
 
         /*
          * Gateway address (recursive nexthop address).

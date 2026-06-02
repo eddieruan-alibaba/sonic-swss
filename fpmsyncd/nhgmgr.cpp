@@ -1884,10 +1884,7 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_
     for (uint32_t dep_id : depends) {
         RIBNHGEntry* dep_entry = ctx.rib_nhg_table->getEntry(dep_id);
         if (dep_entry && isAllDisabled(dep_entry)) {
-            if (enable_group[dep_id]) {
-                enable_group[dep_id] = false;
-                entry->setUpdatedViaBackwalk();
-            }
+            enable_group[dep_id] = false;
         }
         SWSS_LOG_NOTICE("Check depend %d, enable flag %d", dep_id, (int) enable_group[dep_id]);
     }
@@ -1908,7 +1905,6 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_
             for (auto& kv : enable_group) {
                 kv.second = false;
             }
-            entry->setUpdatedViaBackwalk();
             is_relevant = true;
         }
     }
@@ -1938,6 +1934,12 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_
     }
 
     ctx.modified_node_set.insert(entry_id);
+
+    /* This entry's effective APPDB output was changed by the PIC backwalk and
+     * now diverges from zebra's last full NHG state. Tag it so the next NHGFULL
+     * for this id forces a HW re-push (the flag survives the enable_group reset
+     * that a dependency's NHGFULL cascade performs). Cleared in setEntry. */
+    entry->setUpdatedViaBackwalk();
 
     if (all_disabled) {
         SWSS_LOG_NOTICE("PIC: walk_spec node %u all paths disabled, skip APPDB write", entry_id);
@@ -1994,10 +1996,7 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup_sonic_nhg(RIBNHGEntry* entry
     for (uint32_t dep_id : depends) {
         RIBNHGEntry* dep_entry = ctx.rib_nhg_table->getEntry(dep_id);
         if (dep_entry && isAllDisabled(dep_entry)) {
-            if (enable_group[dep_id]) {
-                enable_group[dep_id] = false;
-                entry->setUpdatedViaBackwalk();
-            }
+            enable_group[dep_id] = false;
         }
     }
 
@@ -2014,7 +2013,6 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup_sonic_nhg(RIBNHGEntry* entry
             for (auto& kv : enable_group) {
                 kv.second = false;
             }
-            entry->setUpdatedViaBackwalk();
             is_relevant = true;
         }
     }
@@ -2054,6 +2052,10 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup_sonic_nhg(RIBNHGEntry* entry
     }
 
     ctx.modified_node_set.insert(entry_id);
+
+    /* APPDB output changed by the backwalk; force a re-push on the next NHGFULL
+     * for this id. Survives the enable_group reset; cleared in setEntry. */
+    entry->setUpdatedViaBackwalk();
 
     if (all_disabled) {
         SWSS_LOG_NOTICE("PIC: walk_spec_sonic_nhg node %u all paths disabled, skip APPDB write", entry_id);

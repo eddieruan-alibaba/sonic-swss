@@ -683,6 +683,20 @@ int RIBNHGTable::updateEntry(NextHopGroupFull nhg, uint8_t af, bool &updated) {
             SWSS_LOG_ERROR("Failed to set entry for %d", nhg.id);
             return ret;
         }
+
+        // A valid NHGFULL from zebra means this NHG is live.
+        // Clear stale PIC disable flags in all dependents that track this NHG.
+        std::set<uint32_t> dependents = entry->getDependentsID();
+        for (uint32_t dep_id : dependents) {
+            RIBNHGEntry* dep_entry = getEntry(dep_id);
+            if (dep_entry) {
+                auto& dep_eg = dep_entry->getResolvedEnableGroup();
+                auto it2 = dep_eg.find(nhg.id);
+                if (it2 != dep_eg.end() && !it2->second) {
+                    it2->second = true;
+                }
+            }
+        }
     }
 
     return 0;

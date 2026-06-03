@@ -2,6 +2,12 @@
 #include "logger.h"
 #include <string.h>
 
+/* zebra nexthop flag bits (see FRR lib/nexthop.h). Only ONLINK is exported
+ * by the shipped nexthopgroupfull.h, so define ACTIVE here if not present. */
+#ifndef NEXTHOP_FLAG_ACTIVE
+#define NEXTHOP_FLAG_ACTIVE (1 << 0) /* This nexthop is alive. */
+#endif
+
 
 using namespace std;
 using namespace swss;
@@ -890,6 +896,7 @@ int RIBNHGEntry::setEntry(NextHopGroupFull nhg, uint8_t af) {
     m_rib_id = nhg.id;
     m_nhg = nhg;
     m_af = af;
+    m_flags = nhg.flags;
     m_group.clear();
     m_depends.clear();
     m_dependents.clear();
@@ -1131,6 +1138,11 @@ int RIBNHGEntry::getNextHopGroupFields(bool backwalk) {
             return -1;
         }
         RIBNHGEntry *entry = this->m_table->getEntry(id);
+        if (!(entry->m_flags & NEXTHOP_FLAG_ACTIVE)) {
+            SWSS_LOG_NOTICE("NextHop id %d skipped (NEXTHOP_FLAG_ACTIVE not set, flags 0x%x), path is not valid",
+                            id, entry->m_flags);
+            continue;
+        }
         if (!nexthops.empty()) {
             nexthops += NHG_DELIMITER;
         }
@@ -1160,6 +1172,13 @@ int RIBNHGEntry::getNextHopGroupFields(bool backwalk) {
             SWSS_LOG_DEBUG(" entry vpnSid: [%s], segSrc: [%s]", vpnSids.c_str(), segSrcs.c_str());
         }
     }
+
+    if (nexthops.empty()) {
+        SWSS_LOG_ERROR("get NextHopGroup fields failed for rib id %d: no active nexthop in group",
+                       m_rib_id);
+        return -1;
+    }
+
     m_nexthop = nexthops;
     m_ifName = ifnames;
     m_vpnSid = vpnSids;

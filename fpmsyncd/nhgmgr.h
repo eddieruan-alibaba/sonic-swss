@@ -686,6 +686,12 @@ using namespace std;
         uint8_t m_af = 0;
 
         /*
+         * nexthop flags of the entry, copied from m_nhg.flags.
+         * Used to check NEXTHOP_FLAG_ACTIVE when building a group.
+         */
+        uint8_t m_flags = 0;
+
+        /*
          * FV vector of the entry
          */
         vector<FieldValueTuple> m_fvVector;

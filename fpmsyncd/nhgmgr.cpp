@@ -1138,9 +1138,13 @@ int RIBNHGEntry::getNextHopGroupFields(bool backwalk) {
             return -1;
         }
         RIBNHGEntry *entry = this->m_table->getEntry(id);
-        if (!(entry->m_flags & NEXTHOP_FLAG_ACTIVE)) {
-            SWSS_LOG_NOTICE("NextHop id %d skipped (NEXTHOP_FLAG_ACTIVE not set, flags 0x%x), path is not valid",
-                            id, entry->m_flags);
+        /* Skip an inactive nexthop as an invalid path, unless the member group
+         * has NEXTHOP_GROUP_RECEIVED_FLAG set in its nhg_flags (zebra has
+         * confirmed the full group), in which case we still process it. */
+        if (!(entry->m_flags & NEXTHOP_FLAG_ACTIVE) &&
+            !CHECK_FLAG(entry->m_nhg.nhg_flags, NEXTHOP_GROUP_RECEIVED_FLAG)) {
+            SWSS_LOG_NOTICE("NextHop id %d skipped (NEXTHOP_FLAG_ACTIVE not set, flags 0x%x, nhg_flags 0x%x), path is not valid",
+                            id, entry->m_flags, entry->m_nhg.nhg_flags);
             continue;
         }
         if (!nexthops.empty()) {

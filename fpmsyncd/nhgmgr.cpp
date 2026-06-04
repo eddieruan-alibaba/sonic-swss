@@ -1902,12 +1902,16 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_
     auto& enable_group = entry->getResolvedEnableGroup();
 
     SWSS_LOG_NOTICE("Walk to node %d", entry->getRIBID());
-    /* Visit-for-State: for each depends entry, if ALL its
-     * resolved_enable_group entries are false, mark that dep disabled */
+    /* Visit-for-State: re-derive each dep's enable flag from the dep's
+     * current state. The gateway-match branch below writes false durably
+     * into enable_group; if an unrelated later trigger visits this entry,
+     * that stale false would suppress legitimate APPDB updates until the
+     * next NHGFULL reset. Healing here lets false->true transitions happen
+     * between triggers, not only at NHGFULL boundaries. */
     for (uint32_t dep_id : depends) {
         RIBNHGEntry* dep_entry = ctx.rib_nhg_table->getEntry(dep_id);
-        if (dep_entry && isAllDisabled(dep_entry)) {
-            enable_group[dep_id] = false;
+        if (dep_entry) {
+            enable_group[dep_id] = !isAllDisabled(dep_entry);
         }
         SWSS_LOG_NOTICE("Check depend %d, enable flag %d", dep_id, (int) enable_group[dep_id]);
     }
@@ -2015,11 +2019,13 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup_sonic_nhg(RIBNHGEntry* entry
     std::set<uint32_t> depends = entry->getDependsID();
     auto& enable_group = entry->getResolvedEnableGroup();
 
-    /* Visit-for-State */
+    /* Visit-for-State: re-derive from dep's current state so a stale false
+     * from an earlier gateway-match branch on this entry doesn't suppress a
+     * legitimate later update. Same heal pattern as the Part 1 walk above. */
     for (uint32_t dep_id : depends) {
         RIBNHGEntry* dep_entry = ctx.rib_nhg_table->getEntry(dep_id);
-        if (dep_entry && isAllDisabled(dep_entry)) {
-            enable_group[dep_id] = false;
+        if (dep_entry) {
+            enable_group[dep_id] = !isAllDisabled(dep_entry);
         }
     }
 

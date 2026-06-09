@@ -221,7 +221,7 @@ int NHGMgr::addNewNHGFull(NextHopGroupFull nhg, uint8_t af) {
             m_rib_nhg_table->delEntry(nhg.id);
             return -1;
         }
-        
+
         entry->setSonicNHGObjId(sonicId);
         ret = m_rib_nhg_table->writeToDB(entry);
         if (ret != 0) {
@@ -631,7 +631,7 @@ void RIBNHGTable::delEntry(uint32_t id) {
     if (entry->isSharedSonicNHG()){
         this->subSonicNHGObjectRef(entry->getSonicNHGObjectKey());
     }else{
-        SWSS_LOG_NOTICE("delEntry: remove entry from NHG DB for RIB_id %d, sonic_id %d", 
+        SWSS_LOG_NOTICE("delEntry: remove entry from NHG DB for RIB_id %d, sonic_id %d",
                          entry->getRIBID(), entry->getSonicObjID());
         this->removeFromDB(sonicNHGID);
         m_sonic_id_manager->freeID(SONIC_NHG_OBJ_TYPE_NHG_NORMAL, sonicNHGID);
@@ -749,7 +749,7 @@ int RIBNHGTable::writeToDB(RIBNHGEntry *entry) {
     }
     entry->setLastAppdbFields(fields_str);
 
-    SWSS_LOG_NOTICE("writeToDB : RIB_id %d sonic_id %d, fields %s", 
+    SWSS_LOG_NOTICE("writeToDB : RIB_id %d sonic_id %d, fields %s",
                     entry->getRIBID(), entry->getSonicObjID(), fields_str.c_str());
 
     m_nexthop_groupTable.set(std::to_string(entry->getSonicObjID()), fvVector);
@@ -1333,8 +1333,10 @@ void RIBNHGEntry::checkNeedCreateSonicNHGObj() {
             m_create_sonic_nhg_obj = true;
         }else{
             m_create_sonic_nhg_obj = false;
-            m_sonic_obj_id = id;
-            m_table->addSonicNHGObjectRef(m_sonic_nhg_key);
+            if (m_sonic_obj_id != id) {
+                m_sonic_obj_id = id;
+                m_table->addSonicNHGObjectRef(m_sonic_nhg_key);
+            }
         }
     }else{
         /*

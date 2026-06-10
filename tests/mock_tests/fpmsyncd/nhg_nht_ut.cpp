@@ -709,8 +709,7 @@ namespace ut_fpmsyncd
             }
         }
 
-        bool updated = false;
-        e238->checkNeedUpdate(nhg238, AF_INET6, updated);
+        bool updated = e238->checkNeedUpdate(nhg238, AF_INET6);
         EXPECT_TRUE(updated);
     }
 
@@ -742,8 +741,7 @@ namespace ut_fpmsyncd
             }
         }
 
-        bool updated = false;
-        e238->checkNeedUpdate(nhg238, AF_INET6, updated);
+        bool updated = e238->checkNeedUpdate(nhg238, AF_INET6);
         EXPECT_FALSE(updated);
     }
 

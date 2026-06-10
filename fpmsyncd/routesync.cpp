@@ -528,8 +528,8 @@ void RouteSync::getEvpnNextHopSep(string& nexthops, string& vni_list,
     return;
 }
 
-void RouteSync::getEvpnNextHopGwIf(char *gwaddr, int vni_value, 
-                               string& nexthops, string& vni_list,  
+void RouteSync::getEvpnNextHopGwIf(char *gwaddr, int vni_value,
+                               string& nexthops, string& vni_list,
                                string& mac_list, string& intf_list,
                                string rmac, string vlan_id)
 {
@@ -539,9 +539,9 @@ void RouteSync::getEvpnNextHopGwIf(char *gwaddr, int vni_value,
     intf_list+=vlan_id;
 }
 
-bool RouteSync::getEvpnNextHop(struct nlmsghdr *h, int received_bytes, 
-                               struct rtattr *tb[], string& nexthops, 
-                               string& vni_list, string& mac_list, 
+bool RouteSync::getEvpnNextHop(struct nlmsghdr *h, int received_bytes,
+                               struct rtattr *tb[], string& nexthops,
+                               string& vni_list, string& mac_list,
                                string& intf_list)
 {
     void *gate = NULL;
@@ -561,9 +561,9 @@ bool RouteSync::getEvpnNextHop(struct nlmsghdr *h, int received_bytes,
     if (tb[RTA_GATEWAY])
         gate = RTA_DATA(tb[RTA_GATEWAY]);
 
-    if (h->nlmsg_type == RTM_NEWROUTE) 
+    if (h->nlmsg_type == RTM_NEWROUTE)
     {
-        if (!tb[RTA_MULTIPATH]) 
+        if (!tb[RTA_MULTIPATH])
         {
             gw_af = AF_INET; // default value
             if (gate)
@@ -576,7 +576,7 @@ bool RouteSync::getEvpnNextHop(struct nlmsghdr *h, int received_bytes,
                 else
                 {
                     memcpy(ipv6_address.s6_addr, gate, IPV6_MAX_BYTE);
-                    gw_af = AF_INET6;                    
+                    gw_af = AF_INET6;
                 }
             }
 
@@ -616,7 +616,7 @@ bool RouteSync::getEvpnNextHop(struct nlmsghdr *h, int received_bytes,
             }
 
             if (tb[RTA_ENCAP] && tb[RTA_ENCAP_TYPE]
-                && (*(uint16_t *)RTA_DATA(tb[RTA_ENCAP_TYPE]) == NH_ENCAP_VXLAN)) 
+                && (*(uint16_t *)RTA_DATA(tb[RTA_ENCAP_TYPE]) == NH_ENCAP_VXLAN))
             {
                 parseEncap(tb[RTA_ENCAP], encap_value, rmac);
             }
@@ -639,7 +639,7 @@ bool RouteSync::getEvpnNextHop(struct nlmsghdr *h, int received_bytes,
             struct rtnexthop *rtnh = (struct rtnexthop *)RTA_DATA(tb[RTA_MULTIPATH]);
             len = (int)RTA_PAYLOAD(tb[RTA_MULTIPATH]);
 
-            for (;;) 
+            for (;;)
             {
                 uint16_t encap = 0;
                 if (len < (int)sizeof(*rtnh) || rtnh->rtnh_len > len)
@@ -648,7 +648,7 @@ bool RouteSync::getEvpnNextHop(struct nlmsghdr *h, int received_bytes,
                 }
 
                 gate = 0;
-                if (rtnh->rtnh_len > sizeof(*rtnh)) 
+                if (rtnh->rtnh_len > sizeof(*rtnh))
                 {
                     memset(subtb, 0, sizeof(subtb));
 
@@ -670,10 +670,10 @@ bool RouteSync::getEvpnNextHop(struct nlmsghdr *h, int received_bytes,
                         else
                         {
                             memcpy(ipv6_address.s6_addr, gate, IPV6_MAX_BYTE);
-                            gw_af = AF_INET6;                    
+                            gw_af = AF_INET6;
                         }
                     }
-                    
+
                     if(gw_af == AF_INET6)
                     {
                         if (IN6_IS_ADDR_V4MAPPED(&ipv6_address))
@@ -688,7 +688,7 @@ bool RouteSync::getEvpnNextHop(struct nlmsghdr *h, int received_bytes,
                             return false;
                         }
                     }
-                    
+
                     inet_ntop(gw_af, gateaddr, nexthopaddr, MAX_ADDR_SIZE);
 
 
@@ -742,7 +742,7 @@ bool RouteSync::getEvpnNextHop(struct nlmsghdr *h, int received_bytes,
 
                 len -= NLMSG_ALIGN(rtnh->rtnh_len);
                 rtnh = RTNH_NEXT(rtnh);
-            }			
+            }
         }
     }
     return true;
@@ -786,7 +786,7 @@ void RouteSync::onEvpnRouteMsg(struct nlmsghdr *h, int len)
     }
     else if (rtm->rtm_family == AF_INET6)
     {
-        if (rtm->rtm_dst_len > IPV6_MAX_BITLEN) 
+        if (rtm->rtm_dst_len > IPV6_MAX_BITLEN)
         {
             return;
         }
@@ -839,7 +839,7 @@ void RouteSync::onEvpnRouteMsg(struct nlmsghdr *h, int len)
     }
 
     auto proto_str = getProtocolString(rtm->rtm_protocol);
-    SWSS_LOG_INFO("Receive route message dest ip prefix: %s Op:%s", 
+    SWSS_LOG_INFO("Receive route message dest ip prefix: %s Op:%s",
                     destipprefix,
                     nlmsg_type == RTM_NEWROUTE ? "add":"del");
 
@@ -916,7 +916,7 @@ void RouteSync::onEvpnRouteMsg(struct nlmsghdr *h, int len)
     fvVector.push_back(vni);
     fvVector.push_back(mac);
     fvVector.push_back(proto);
-    
+
     setRouteWithWarmRestart(destipprefix, fvVector, m_routeTable, SET_COMMAND);
     SWSS_LOG_INFO("RouteTable set EVPN msg: %s vtep:%s vni:%s mac:%s intf:%s protocol:%s",
                   destipprefix, nexthops.c_str(), vni_list.c_str(), mac_list.c_str(), intf_list.c_str(),
@@ -1611,7 +1611,7 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
 
         if(nhg_entry == nullptr && nhg_received_entry == nullptr)
         {
-            SWSS_LOG_ERROR("onSrv6VpnRouteMsg: Can not find nhg_received or nhg SONiC Obj entry for vpn route :%s nhg_id: %d nhg_received_id: %d", 
+            SWSS_LOG_ERROR("onSrv6VpnRouteMsg: Can not find nhg_received or nhg SONiC Obj entry for vpn route :%s nhg_id: %d nhg_received_id: %d",
                 routeTableKey, nhg_id, nhg_received_id);
             return ;
         }
@@ -1749,7 +1749,7 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
         len = (int)(h->nlmsg_len - NLMSG_LENGTH(sizeof(struct ndmsg)));
     }
     /* Length validity. */
-    if (len < 0) 
+    if (len < 0)
     {
         SWSS_LOG_ERROR("%s: Message received from netlink is of a broken size %d %zu",
             __PRETTY_FUNCTION__, h->nlmsg_len,
@@ -1841,7 +1841,7 @@ void RouteSync::onMsg(int nlmsg_type, struct nl_object *obj)
     {
         /* Get the name of the master device */
         getIfName(master_index, master_name, IFNAMSIZ);
-    
+
         /* If the master device name starts with VNET_PREFIX, it is a VNET route.
            The VNET name is exactly the name of the associated master device. */
         if (string(master_name).find(VNET_PREFIX) == 0)
@@ -1860,8 +1860,8 @@ void RouteSync::onMsg(int nlmsg_type, struct nl_object *obj)
     }
 }
 
-/* 
- * Handle regular route (include VRF route) 
+/*
+ * Handle regular route (include VRF route)
  * @arg nlmsg_type      Netlink message type
  * @arg obj             Netlink object
  * @arg vrf             Vrf name
@@ -2439,6 +2439,12 @@ void RouteSync::onNhtEventMsg(struct nlmsghdr *h, int len)
             return;
         }
 
+        if (nht_event.prev_resolved_nhg_id == 0) {
+            SWSS_LOG_DEBUG("NHT event for %s: prev_resolved_nhg_id=%u, skipping (not Phase 1)",
+                nht_event.rnh_prefix.c_str(), nht_event.curr_resolved_nhg_id);
+            return;
+        }
+
         /* Convert rnh_prefix to nexthop address (strip /prefix_len) */
         string nexthop_addr = nht_event.rnh_prefix;
         size_t slash_pos = nexthop_addr.find('/');
@@ -2560,11 +2566,11 @@ void RouteSync::onLabelRouteMsg(int nlmsg_type, struct nl_object *obj)
 }
 
 /*
- * Handle vnet route 
+ * Handle vnet route
  * @arg nlmsg_type      Netlink message type
  * @arg obj             Netlink object
  * @arg vnet            Vnet name
- */     
+ */
 void RouteSync::onVnetRouteMsg(int nlmsg_type, struct nl_object *obj, string vnet)
 {
     struct rtnl_route *route_obj = (struct rtnl_route *)obj;

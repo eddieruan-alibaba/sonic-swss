@@ -762,7 +762,7 @@ int RIBNHGTable::writeToDB(RIBNHGEntry *entry) {
     }
     entry->setLastAppdbFields(fields_str);
 
-    SWSS_LOG_NOTICE("writeToDB : RIB_id %d sonic_id %d, fields %s",
+    SWSS_LOG_NOTICE("RIB_id %d sonic_id %d, fields %s",
                     entry->getRIBID(), entry->getSonicObjID(), fields_str.c_str());
 
     m_nexthop_groupTable.set(std::to_string(entry->getSonicObjID()), fvVector);
@@ -1994,8 +1994,11 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup(RIBNHGEntry* entry, fib_nhg_
         return true;
     }
 
-    /* Write to APPDB (writeToDB has compare-and-skip dedup) */
-    if (entry->needCreateSonicObject() && entry->getSonicObjID() != 0) {
+    /* Write to APPDB (writeToDB has compare-and-skip dedup).
+     * Don't gate on needCreateSonicObject(): an entry that adopted an
+     * existing shared sonic NHG key still owns its APPDB row and needs to
+     * refresh it when the PIC backwalk regenerated the fvVector. */
+    if (entry->getSonicObjID() != 0) {
         ctx.rib_nhg_table->writeToDB(entry);
         SWSS_LOG_NOTICE("PIC: walk_spec modified entry %u, written to APPDB", entry_id);
     }
@@ -2112,7 +2115,7 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup_sonic_nhg(RIBNHGEntry* entry
         return true;
     }
 
-    if (entry->needCreateSonicObject() && entry->getSonicObjID() != 0) {
+    if (entry->getSonicObjID() != 0) {
         ctx.rib_nhg_table->writeToDB(entry);
     }
 

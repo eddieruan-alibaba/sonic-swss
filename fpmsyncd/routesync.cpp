@@ -2310,16 +2310,6 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         m_rib_fib_nhg_mgr.addNHGFull(nhg, addr_family);
         SWSS_LOG_INFO("Add NHG with id %d", nhg.id);
 
-        /* Retrieve sonic NHG ID for debugging */
-        string sonic_nhg_id_str = "";
-        RIBNHGEntry *entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(id);
-        if (entry) {
-            uint32_t sonic_id = entry->getSonicObjID();
-            if (sonic_id > 0) {
-                sonic_nhg_id_str = to_string(sonic_id);
-            }
-        }
-
         /*
          * Write decoded NHG Full info to APPL_STATE_DB for debugging.
          * key: nhg_id
@@ -2352,7 +2342,6 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         fvs.emplace_back("create_time", existing_create_time.empty() ? now_str : existing_create_time);
         fvs.emplace_back("update_time", now_str);
 
-        /* Sonic NHG ID */
         /* Sonic NHG ID */
         RIBNHGEntry *entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(id);
         if (!entry)
@@ -2403,21 +2392,6 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         }
         dependents_str += "]";
         fvs.emplace_back("dependents", dependents_str);
-
-        /* Sonic NHG ID mapping */
-        fvs.emplace_back("sonic_nhg_id", sonic_nhg_id_str);
-
-        /* Update timestamp */
-        auto now = std::chrono::system_clock::now();
-        auto time_t_now = std::chrono::system_clock::to_time_t(now);
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now.time_since_epoch()) % 1000;
-        struct tm tm_buf;
-        localtime_r(&time_t_now, &tm_buf);
-        char time_str[64];
-        strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_buf);
-        string update_time = string(time_str) + "." + to_string(ms.count());
-        fvs.emplace_back("update_time", update_time);
 
         m_nhgFullStateTable.set(to_string(id), fvs);
         m_app_state_pipeline->flush();

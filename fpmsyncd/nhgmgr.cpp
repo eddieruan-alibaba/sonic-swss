@@ -200,7 +200,7 @@ int NHGMgr::addNewNHGFull(NextHopGroupFull nhg, uint8_t af) {
     /* Populate nexthop-to-NHG index maps for PIC backwalk */
     const string& gw = entry->getGatewayAddress();
     if (!gw.empty()) {
-        if (!entry->hasSonicGatewayObj()) {
+        if (!entry->hasSonicPICObj()) {
             /* Global table context (Part 1 fallback) */
             m_rib_nhg_table->addGlobalEntry(gw, entry);
         } else {
@@ -439,16 +439,14 @@ int NHGMgr::delNHGFull(uint32_t id) {
     /* Remove from nexthop-to-NHG index maps before deletion */
     const string& gw = entry->getGatewayAddress();
     if (!gw.empty()) {
-        if (!entry->hasSonicGatewayObj()) {
+        if (!entry->hasSonicPICObj()) {
             m_rib_nhg_table->removeGlobalEntry(gw, entry);
         } else {
             m_rib_nhg_table->removeVrfEntry(gw, entry);
         }
     }
 
-    if (m_rib_nhg_table->delEntry(id) != 0) {
-        return -1;
-    }
+    m_rib_nhg_table->delEntry(id);
     return 0;
 }
 
@@ -2063,7 +2061,7 @@ bool NHGMgr::fib_nhg_walk_spec_for_node_quick_fixup_sonic_nhg(RIBNHGEntry* entry
     }
 
     /* Deduplication: check if this SONiC NHG key was already updated */
-    if (entry->hasSonicGatewayObj()) {
+    if (entry->hasSonicPICObj()) {
         SonicNHGObjectKey key = entry->getSonicNHGObjectKey();
         std::string key_str = key.nexthop + "|" + key.vpnSid + "|" + key.segSrc;
         if (ctx.updated_sonic_nhg_keys.count(key_str) != 0) {

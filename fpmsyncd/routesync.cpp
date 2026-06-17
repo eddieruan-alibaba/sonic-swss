@@ -1617,7 +1617,7 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
         if(nhg_received_entry->isSingleNexthop())
         {
             SWSS_LOG_INFO("onSrv6VpnRouteMsg: Singleton, zebra nhg_received %d, corresponding SONiC Obj ID %d",
-                   nhg_received_id, nhg_received_entry->getSonicObjID());
+                   nhg_received_id, nhg_received_entry->getSonicObjIDNum());
 
             vector<FieldValueTuple> fvVector;
 
@@ -1654,7 +1654,7 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
         else{
             vector<FieldValueTuple> fvVectorVpnRoute;
             // FieldValueTuple pic_context_id("pic_context_id", getNextHopGroupKeyAsString(pic_id));
-            FieldValueTuple pic_context_id("pic_context_id", to_string(nhg_received_entry->getSonicPICObjID()));
+            FieldValueTuple pic_context_id("pic_context_id", to_string(nhg_received_entry->getSonicPICObjIDNum()));
             fvVectorVpnRoute.push_back(pic_context_id);
 
             vector<FieldValueTuple> fvVector;
@@ -1670,7 +1670,7 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
             // m_nexthop_groupTable.set(key.c_str(), fvVector);
 
             // FieldValueTuple nexthop_group("nexthop_group", getNextHopGroupKeyAsString(nhg_id));
-            FieldValueTuple nexthop_group("nexthop_group", to_string(nhg_received_entry->getSonicObjID()));
+            FieldValueTuple nexthop_group("nexthop_group", to_string(nhg_received_entry->getSonicObjIDNum()));
             fvVectorVpnRoute.push_back(nexthop_group);
 
             FieldValueTuple nh("nexthop", "");
@@ -1685,7 +1685,7 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
 
             SWSS_LOG_INFO("onSrv6VpnRouteMsg: nhg_received %d is multi-nexthop NHG. Filling the route table %s with pic_context_id: %d, nexthop_group: %d",
                    nhg_received_id, destipprefix,
-                   nhg_received_entry->getSonicPICObjID(), nhg_received_entry->getSonicObjID());
+                   nhg_received_entry->getSonicPICObjIDNum(), nhg_received_entry->getSonicObjIDNum());
         }
 
     }
@@ -2011,7 +2011,7 @@ void RouteSync::onRouteMsg(int nlmsg_type, struct nl_object *obj, char *vrf)
             }
             SWSS_LOG_INFO("Get NHG with id %d", nhg_id);
 
-            sonic_nhg_id = entry->getSonicObjID();
+            sonic_nhg_id = entry->getSonicObjIDNum();
 
             if(entry->isSingleNexthop())
             {
@@ -2386,7 +2386,7 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
             return;
         }
 
-        uint32_t sonicId = entry->getSonicObjID();
+        uint32_t sonicId = entry->getSonicObjIDNum();
         if (sonicId != 0)
         {
             fvs.emplace_back("sonic_nhg_id", to_string(sonicId));

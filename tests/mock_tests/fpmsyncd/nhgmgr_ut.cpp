@@ -203,7 +203,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjB, AF_INET), 0);
 /* Check that fpmsyncd created the correct entries in APP_DB */
 RIBNHGEntry *entryB = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDB);
 ASSERT_NE(entryB, nullptr);
-uint32_t sonicObjIDB = entryB->getSonicObjID();
+uint32_t sonicObjIDB = entryB->getSonicObjID().id;
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDB), true);
 std::string nexthops, weights;
 ASSERT_EQ(m_nextHopTable->hget(to_string(sonicObjIDB), "nexthop", nexthops), true);
@@ -223,7 +223,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjA, AF_INET), 0);
 /* Check that fpmsyncd created the correct entries in APP_DB */
 RIBNHGEntry *entryA = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDA);
 ASSERT_NE(entryA, nullptr);
-uint32_t sonicObjIDA = entryA->getSonicObjID();
+uint32_t sonicObjIDA = entryA->getSonicObjID().id;
 nexthops = "";
 weights = "";
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDA), true);
@@ -309,7 +309,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjB, AF_INET6), 0);
 /* Check that fpmsyncd created the correct entries in APP_DB */
 RIBNHGEntry *entryB = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDB);
 ASSERT_NE(entryB, nullptr);
-uint32_t sonicObjIDB = entryB->getSonicObjID();
+uint32_t sonicObjIDB = entryB->getSonicObjID().id;
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDB), true);
 std::string nexthops, weights;
 ASSERT_EQ(m_nextHopTable->hget(to_string(sonicObjIDB), "nexthop", nexthops), true);
@@ -329,7 +329,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjA, AF_INET6), 0);
 /* Check that fpmsyncd created the correct entries in APP_DB */
 RIBNHGEntry *entryA = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDA);
 ASSERT_NE(entryA, nullptr);
-uint32_t sonicObjIDA = entryA->getSonicObjID();
+uint32_t sonicObjIDA = entryA->getSonicObjID().id;
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDA), true);
 nexthops = "";
 weights = "";
@@ -447,7 +447,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjB, AF_INET), 0);
 /* Check that fpmsyncd created the correct entries in APP_DB */
 RIBNHGEntry *entryB = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDB);
 ASSERT_NE(entryB, nullptr);
-uint32_t sonicObjIDB = entryB->getSonicObjID();
+uint32_t sonicObjIDB = entryB->getSonicObjID().id;
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDB), true);
 std::string nexthops, weights;
 ASSERT_EQ(m_nextHopTable->hget(to_string(sonicObjIDB), "nexthop", nexthops), true);
@@ -467,7 +467,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjA, AF_INET), 0);
 /* Check that fpmsyncd created the correct entries in APP_DB */
 RIBNHGEntry *entryA = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDA);
 ASSERT_NE(entryA, nullptr);
-uint32_t sonicObjIDA = entryA->getSonicObjID();
+uint32_t sonicObjIDA = entryA->getSonicObjID().id;
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDA), true);
 nexthops = "";
 weights = "";
@@ -580,7 +580,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjB, AF_INET6), 0);
 /* Check that fpmsyncd created the correct entries in APP_DB */
 RIBNHGEntry *entryB = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDB);
 ASSERT_NE(entryB, nullptr);
-uint32_t sonicObjIDB = entryB->getSonicObjID();
+uint32_t sonicObjIDB = entryB->getSonicObjID().id;
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDB), true);
 std::string nexthops, weights;
 ASSERT_EQ(m_nextHopTable->hget(to_string(sonicObjIDB), "nexthop", nexthops), true);
@@ -600,7 +600,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjA, AF_INET6), 0);
 /* Check that fpmsyncd created the correct entries in APP_DB */
 RIBNHGEntry *entryA = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDA);
 ASSERT_NE(entryA, nullptr);
-uint32_t sonicObjIDA = entryA->getSonicObjID();
+uint32_t sonicObjIDA = entryA->getSonicObjID().id;
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDA), true);
 nexthops = "";
 weights = "";
@@ -686,7 +686,7 @@ ASSERT_EQ(nexthopA, entryA->getNextHopStr());
 SonicPICContentEntry *sonicNHGEntry = m_nhgmgr->getSonicPICByRIBID(ribIDA);
 ASSERT_NE(sonicNHGEntry, nullptr);
 ASSERT_EQ(sonicNHGEntry->getType(), swss::SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC);
-uint32_t sonicPICobjIDA = sonicNHGEntry->getSonicPicContentObjId();
+uint32_t sonicPICobjIDA = sonicNHGEntry->getSonicPicContentObjId().id;
 ASSERT_EQ(m_picContextTable->hget(to_string(sonicPICobjIDA), "nexthop", nexthops), true);
 ASSERT_EQ(m_picContextTable->hget(to_string(sonicPICobjIDA), "vpn_sid", vpnsids), true);
 ASSERT_EQ(m_nhgmgr->isSonicPICIDInUsed(swss::SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC, sonicPICobjIDA), true);
@@ -728,7 +728,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjB, AF_INET6), 0);
 /* Check that fpmsyncd created the correct entries in APP_DB for B */
 RIBNHGEntry *entryB = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDB);
 ASSERT_NE(entryB, nullptr);
-uint32_t sonicObjIDB = entryB->getSonicObjID();
+uint32_t sonicObjIDB = entryB->getSonicObjID().id;
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDB), true);
 nexthops = "";
 vpnsids = "";
@@ -743,7 +743,7 @@ ASSERT_EQ(nexthops, "b::b");
 SonicPICContentEntry *sonicNHGEntryB = m_nhgmgr->getSonicPICByRIBID(ribIDB);
 ASSERT_NE(sonicNHGEntryB, nullptr);
 ASSERT_EQ(sonicNHGEntryB->getType(), swss::SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC);
-uint32_t sonicPICobjIDB = sonicNHGEntryB->getSonicPicContentObjId();
+uint32_t sonicPICobjIDB = sonicNHGEntryB->getSonicPicContentObjId().id;
 ASSERT_EQ(m_nhgmgr->isSonicPICIDInUsed(swss::SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC, sonicPICobjIDB), true);
 ASSERT_EQ(m_picContextTable->hget(to_string(sonicPICobjIDB), "vpn_sid", vpnsids), true);
 ASSERT_EQ(vpnsids, "1::1");
@@ -753,7 +753,7 @@ ASSERT_EQ(nexthops, "b::b");
 /* Check that fpmsyncd created the correct entries in APP_DB for C */
 RIBNHGEntry *entryC = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDC);
 ASSERT_NE(entryC, nullptr);
-uint32_t sonicObjIDC = entryC->getSonicObjID();
+uint32_t sonicObjIDC = entryC->getSonicObjID().id;
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDC), true);
 nexthops = "";
 nexthopResults.clear();
@@ -765,7 +765,7 @@ ASSERT_EQ(nexthops, "e::e");
 SonicPICContentEntry *sonicNHGEntryC = m_nhgmgr->getSonicPICByRIBID(ribIDC);
 ASSERT_NE(sonicNHGEntryC, nullptr);
 ASSERT_EQ(sonicNHGEntryC->getType(), swss::SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC);
-uint32_t sonicPICobjIDC = sonicNHGEntryC->getSonicPicContentObjId();
+uint32_t sonicPICobjIDC = sonicNHGEntryC->getSonicPicContentObjId().id;
 ASSERT_EQ(m_nhgmgr->isSonicPICIDInUsed(swss::SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC, sonicPICobjIDC), true);
 ASSERT_EQ(m_picContextTable->hget(to_string(sonicPICobjIDC), "vpn_sid", vpnsids), true);
 ASSERT_EQ(vpnsids, "2::2");
@@ -787,7 +787,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjA, AF_INET6), 0);
 /* Check that fpmsyncd created the correct entries in APP_DB for NHG A */
 RIBNHGEntry *entryA = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDA);
 ASSERT_NE(entryA, nullptr);
-uint32_t sonicObjIDA = entryA->getSonicObjID();
+uint32_t sonicObjIDA = entryA->getSonicObjID().id;
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDA), true);
 nexthops = "";
 weights = "";
@@ -819,7 +819,7 @@ map<string, string> expectedVpnSidofA = {
 };
 SonicPICContentEntry *sonicNHGEntry = m_nhgmgr->getSonicPICByRIBID(ribIDA);
 ASSERT_NE(sonicNHGEntry, nullptr);
-uint32_t sonicPICobjID = sonicNHGEntry->getSonicPicContentObjId();
+uint32_t sonicPICobjID = sonicNHGEntry->getSonicPicContentObjId().id;
 ASSERT_EQ(m_picContextTable->hget(to_string(sonicPICobjID), "nexthop", nexthops), true);
 ASSERT_EQ(m_picContextTable->hget(to_string(sonicPICobjID), "vpn_sid", vpnsids), true);
 ASSERT_NE(nexthops, "");
@@ -863,7 +863,7 @@ ASSERT_EQ(entry->needCreateSonicObject(), false);
 
 ASSERT_EQ(m_nhgmgr->getSonicPICByRIBID(ribID), nullptr);
 
-uint32_t sonicObjID = entry->getSonicObjID();
+uint32_t sonicObjID = entry->getSonicObjID().id;
 std::string nexthops;
 ASSERT_EQ(m_nextHopTable->hget(to_string(sonicObjID), "nexthop", nexthops), false);
 
@@ -928,7 +928,7 @@ ASSERT_EQ(entryA->needCreateSonicObject(), false);
 
 ASSERT_EQ(m_nhgmgr->getSonicPICByRIBID(ribIDA), nullptr);
 
-uint32_t sonicObjIDA = entryA->getSonicObjID();
+uint32_t sonicObjIDA = entryA->getSonicObjID().id;
 std::string nexthops;
 ASSERT_EQ(m_nextHopTable->hget(to_string(sonicObjIDA), "nexthop", nexthops), false);
 
@@ -1024,8 +1024,8 @@ RIBNHGEntry *entryB = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDB);
 ASSERT_NE(entryA, nullptr);
 ASSERT_NE(entryB, nullptr);
 
-uint32_t sonicObjIDA = entryA->getSonicObjID();
-uint32_t sonicObjIDB = entryB->getSonicObjID();
+uint32_t sonicObjIDA = entryA->getSonicObjID().id;
+uint32_t sonicObjIDB = entryB->getSonicObjID().id;
 ASSERT_EQ(sonicObjIDA, sonicObjIDB);
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDA), true);
 
@@ -1035,8 +1035,8 @@ SonicPICContentEntry *picA = m_nhgmgr->getSonicPICByRIBID(ribIDA);
 SonicPICContentEntry *picB = m_nhgmgr->getSonicPICByRIBID(ribIDB);
 ASSERT_NE(picA, nullptr);
 ASSERT_NE(picB, nullptr);
-uint32_t picObjIDA = picA->getSonicPicContentObjId();
-uint32_t picObjIDB = picB->getSonicPicContentObjId();
+uint32_t picObjIDA = picA->getSonicPicContentObjId().id;
+uint32_t picObjIDB = picB->getSonicPicContentObjId().id;
 ASSERT_NE(picObjIDA, picObjIDB);
 
 std::string picNexhopsA, picVpnSidA, picNexhopsB, picVpnSidB;
@@ -1124,7 +1124,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjA, AF_INET6), 0);
 RIBNHGEntry *entryA = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDA);
 ASSERT_NE(entryA, nullptr);
 ASSERT_EQ(entryA->needCreateSonicObject(), true);
-uint32_t sonicObjIDOld = entryA->getSonicObjID();
+uint32_t sonicObjIDOld = entryA->getSonicObjID().id;
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDOld), true);
 std::string nexthops;
 ASSERT_EQ(m_nextHopTable->hget(to_string(sonicObjIDOld), "nexthop", nexthops), true);
@@ -1145,7 +1145,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjANew, AF_INET6), 0);
 
 entryA = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDA);
 ASSERT_NE(entryA, nullptr);
-uint32_t sonicObjIDNew = entryA->getSonicObjID();
+uint32_t sonicObjIDNew = entryA->getSonicObjID().id;
 ASSERT_NE(sonicObjIDOld, sonicObjIDNew);
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDNew), true);
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDOld), false);
@@ -1243,8 +1243,8 @@ ASSERT_NE(entryB, nullptr);
 ASSERT_NE(entryC, nullptr);
 ASSERT_EQ(entryB->needCreateSonicObject(), true);
 ASSERT_EQ(entryC->needCreateSonicObject(), true);
-uint32_t sonicObjIDB = entryB->getSonicObjID();
-uint32_t sonicObjIDC = entryC->getSonicObjID();
+uint32_t sonicObjIDB = entryB->getSonicObjID().id;
+uint32_t sonicObjIDC = entryC->getSonicObjID().id;
 ASSERT_NE(sonicObjIDB, sonicObjIDC);
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDB), true);
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDC), true);
@@ -1295,15 +1295,15 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjD, AF_INET6), 0);
 RIBNHGEntry *entryD = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDD);
 ASSERT_NE(entryD, nullptr);
 ASSERT_EQ(entryD->needCreateSonicObject(), false);
-uint32_t sonicObjIDD = entryD->getSonicObjID();
+uint32_t sonicObjIDD = entryD->getSonicObjID().id;
 ASSERT_EQ(sonicObjIDD, sonicObjIDB);
 ASSERT_EQ(entryD->hasSonicPICObj(), true);
 SonicPICContentEntry *picEntryB = m_nhgmgr->getSonicPICByRIBID(ribIDB);
 SonicPICContentEntry *picEntryD = m_nhgmgr->getSonicPICByRIBID(ribIDD);
 ASSERT_NE(picEntryB, nullptr);
 ASSERT_NE(picEntryD, nullptr);
-uint32_t picObjIDB = picEntryB->getSonicPicContentObjId();
-uint32_t picObjIDD = picEntryD->getSonicPicContentObjId();
+uint32_t picObjIDB = picEntryB->getSonicPicContentObjId().id;
+uint32_t picObjIDD = picEntryD->getSonicPicContentObjId().id;
 ASSERT_NE(picObjIDB, picObjIDD);
 
 /* Step 4: Update B members to {C1,C2} - joins C's shared NHG */
@@ -1322,7 +1322,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjBNew, AF_INET6), 0);
 
 entryB = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDB);
 ASSERT_NE(entryB, nullptr);
-uint32_t sonicObjIDBAfter = entryB->getSonicObjID();
+uint32_t sonicObjIDBAfter = entryB->getSonicObjID().id;
 ASSERT_EQ(sonicObjIDBAfter, sonicObjIDC);
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDB), true);
 
@@ -1366,7 +1366,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjDNew, AF_INET6), 0);
 
 entryD = m_nhgmgr->getRIBNHGEntryByRIBID(ribIDD);
 ASSERT_NE(entryD, nullptr);
-uint32_t sonicObjIDDAfter = entryD->getSonicObjID();
+uint32_t sonicObjIDDAfter = entryD->getSonicObjID().id;
 ASSERT_NE(sonicObjIDDAfter, sonicObjIDB);
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDDAfter), true);
 ASSERT_EQ(m_nhgmgr->isSonicNHGIDInUsed(sonicObjIDB), false);
@@ -1418,7 +1418,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObj, AF_INET6), 0);
 
 SonicPICContentEntry *picEntry = m_nhgmgr->getSonicPICByRIBID(ribID);
 ASSERT_NE(picEntry, nullptr);
-uint32_t sonicPICObjID = picEntry->getSonicPicContentObjId();
+uint32_t sonicPICObjID = picEntry->getSonicPicContentObjId().id;
 
 std::string segSrc;
 ASSERT_EQ(m_picContextTable->hget(to_string(sonicPICObjID), "seg_src", segSrc), true);
@@ -1554,7 +1554,7 @@ ASSERT_NE(entryParent, nullptr);
 // m_is_single should be true since only one member resolved
 ASSERT_EQ(entryParent->needCreateSonicObject(), false);
 // No sonic NHG ID allocated
-ASSERT_EQ(entryParent->getSonicObjID(), 0u);
+ASSERT_EQ(entryParent->getSonicObjID().id, 0u);
 
 // Cleanup
 ASSERT_EQ(m_nhgmgr->delNHGFull(ribIDParent), 0);
@@ -1647,7 +1647,7 @@ nhgObj.nh_grp_full_list.resize(0);
 ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObj, AF_INET6), 0);
 RIBNHGEntry *entry = m_nhgmgr->getRIBNHGEntryByRIBID(ribID);
 ASSERT_NE(entry, nullptr);
-ASSERT_EQ(entry->getSonicObjID(), 0u);
+ASSERT_EQ(entry->getSonicObjID().id, 0u);
 
 ASSERT_EQ(m_nhgmgr->delNHGFull(ribID), 0);
 ASSERT_EQ(m_nhgmgr->getRIBNHGEntryByRIBID(ribID), nullptr);
@@ -1676,13 +1676,13 @@ RIBNHGEntry *entry = m_nhgmgr->getRIBNHGEntryByRIBID(ribID);
 ASSERT_NE(entry, nullptr);
 ASSERT_TRUE(entry->hasSonicPICObj());
 
-uint32_t picID = entry->getSonicPICObjID();
+uint32_t picID = entry->getSonicPICObjID().id;
 ASSERT_NE(picID, 0u);
 
 // Try to add a duplicate SonicPICContentObject with the same type and id
 SonicPICContentObject dupObj;
 dupObj.type = SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC;
-dupObj.id = picID;
+dupObj.sonicID = sonicObjectID(picID);
 dupObj.nexthop = "10.0.0.2";
 dupObj.vpnSid = "fc00::2";
 dupObj.segSrc = "fc00::200";
@@ -1716,11 +1716,11 @@ ASSERT_EQ(entry, nullptr);
  */
 TEST_F(FpmSyncdNhgMgr, SonicIDMgrUnsupportedType)
 {
-uint32_t id = getSonicIdManager().allocateID(static_cast<sonicNhgObjType>(99));
-ASSERT_EQ(id, 0u);
+sonicObjectID id = getSonicIdManager().allocateID(static_cast<sonicNhgObjType>(99));
+ASSERT_EQ(id.id, 0u);
 
 // freeID with unsupported type should not crash
-getSonicIdManager().freeID(static_cast<sonicNhgObjType>(99), 1);
+getSonicIdManager().freeID(static_cast<sonicNhgObjType>(99), sonicObjectID(1));
 }
 
 /*
@@ -1873,7 +1873,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObj, AF_INET), 0);
 
 RIBNHGEntry *entry = m_nhgmgr->getRIBNHGEntryByRIBID(ribID);
 ASSERT_NE(entry, nullptr);
-uint32_t picID = entry->getSonicPICObjID();
+uint32_t picID = entry->getSonicPICObjID().id;
 ASSERT_NE(picID, 0u);
 
 SonicPICContentEntry *picEntry = getSonicPICTable()->getEntry(
@@ -1894,7 +1894,7 @@ TEST_F(FpmSyncdNhgMgr, SonicPICContentEntrySetEntryUnsupportedType)
 {
 SonicPICContentObject obj;
 obj.type = static_cast<sonicNhgObjType>(99);
-obj.id = 1;
+obj.sonicID = sonicObjectID(1);
 // addEntry internally calls setEntry, which should fail
 ASSERT_EQ(getSonicPICTable()->addEntry(obj), -1);
 }
@@ -1931,12 +1931,12 @@ ASSERT_EQ(m_nhgmgr->getRIBNHGEntryByRIBID(ribIDParent), nullptr);
 TEST_F(FpmSyncdNhgMgr, SonicIDAllocatorBasicOps)
 {
 // Allocate two IDs for NHG_NORMAL type
-uint32_t id1 = getSonicIdManager().allocateID(SONIC_NHG_OBJ_TYPE_NHG_NORMAL);
-ASSERT_NE(id1, 0u);
+sonicObjectID id1 = getSonicIdManager().allocateID(SONIC_NHG_OBJ_TYPE_NHG_NORMAL);
+ASSERT_NE(id1.id, 0u);
 
-uint32_t id2 = getSonicIdManager().allocateID(SONIC_NHG_OBJ_TYPE_NHG_NORMAL);
-ASSERT_NE(id2, 0u);
-ASSERT_NE(id1, id2);
+sonicObjectID id2 = getSonicIdManager().allocateID(SONIC_NHG_OBJ_TYPE_NHG_NORMAL);
+ASSERT_NE(id2.id, 0u);
+ASSERT_NE(id1.id, id2.id);
 
 // Free first ID
 getSonicIdManager().freeID(SONIC_NHG_OBJ_TYPE_NHG_NORMAL, id1);
@@ -1945,8 +1945,8 @@ getSonicIdManager().freeID(SONIC_NHG_OBJ_TYPE_NHG_NORMAL, id1);
 getSonicIdManager().freeID(SONIC_NHG_OBJ_TYPE_NHG_NORMAL, id2);
 
 // Allocate for PIC type
-uint32_t picId = getSonicIdManager().allocateID(SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC);
-ASSERT_NE(picId, 0u);
+sonicObjectID picId = getSonicIdManager().allocateID(SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC);
+ASSERT_NE(picId.id, 0u);
 getSonicIdManager().freeID(SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC, picId);
 }
 
@@ -1978,7 +1978,7 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObj, AF_INET), 0);
 
 RIBNHGEntry *entry = m_nhgmgr->getRIBNHGEntryByRIBID(ribID);
 ASSERT_NE(entry, nullptr);
-uint32_t picID = entry->getSonicPICObjID();
+uint32_t picID = entry->getSonicPICObjID().id;
 ASSERT_NE(picID, 0u);
 
 getSonicPICTable()->cleanUp();
@@ -2008,12 +2008,12 @@ ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObj, AF_INET), 0);
 RIBNHGEntry *entry = m_nhgmgr->getRIBNHGEntryByRIBID(ribID);
 ASSERT_NE(entry, nullptr);
 
-uint32_t sonicID = entry->getSonicObjID();
+uint32_t sonicID = entry->getSonicObjID().id;
 if (sonicID != 0) {
 ASSERT_TRUE(m_nhgmgr->isSonicNHGIDInUsed(sonicID));
 }
 
-uint32_t picID = entry->getSonicPICObjID();
+uint32_t picID = entry->getSonicPICObjID().id;
 if (picID != 0) {
 ASSERT_TRUE(m_nhgmgr->isSonicPICIDInUsed(SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC, picID));
 }

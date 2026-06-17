@@ -34,10 +34,37 @@ using NextHopGroupFull = fib::NextHopGroupFull;
 using nh_grp_full = fib::nh_grp_full;
 
 /* Type aliases for clarity and type safety */
-using ribID = uint32_t;
-using sonicObjectID = uint32_t;
-using nhgWeight = uint16_t;
-using idWeightPair = pair<uint32_t, nhgWeight>;
+
+struct nhgWeight {
+    uint16_t weight;
+    nhgWeight() {};
+    nhgWeight(uint16_t w) { weight=w; }
+    bool operator<(const nhgWeight &other) const {
+        return weight < other.weight;
+    }
+    bool operator==(const nhgWeight &b) const {
+        return weight == b.weight;
+    }
+};
+
+struct BaseID {
+    uint32_t id;
+    BaseID() {};
+    BaseID(uint32_t i) : id(i) {}
+    bool operator<(const BaseID &other) const {
+        return id < other.id;
+    };
+    bool operator==(const BaseID &b) const {
+        return id == b.id;
+    }
+    bool operator!=(const BaseID &b) const {
+        return !(*this == b);
+    }
+};
+
+struct ribID : public BaseID { using BaseID::BaseID; };
+struct sonicObjectID : public BaseID { using BaseID::BaseID; };
+using idWeightPair = pair<BaseID, nhgWeight>;
 
 /* Forward Declarations */
 class RIBNHGTable;
@@ -50,11 +77,11 @@ struct SonicPICContentObject;
  * and the number of RIB entries sharing this object (reference count).
  */
 struct SonicNHGObjectInfo {
-    sonicObjectID id = 0;         /* Sonic NHG object ID in APP_DB */
+    sonicObjectID sonicID = sonicObjectID(0);         /* Sonic NHG object ID in APP_DB */
     uint32_t refCount = 0;   /* Number of RIB entries referencing this object */
     SonicNHGObjectInfo()  {
     }
-    SonicNHGObjectInfo(sonicObjectID id, uint32_t refCount) : id(id), refCount(refCount) {
+    SonicNHGObjectInfo(sonicObjectID id, uint32_t refCount) : sonicID(id), refCount(refCount) {
     }
 };
 
@@ -143,7 +170,7 @@ struct SonicPICContentObject {
     string ifName;    /* Outgoing interface name */
     string segSrc;    /* SRv6 segment source (optional, only for SRv6 type) */
     uint32_t ifIndex = 0;  /* Interface index */
-    sonicObjectID id = 0;       /* Allocated Sonic object ID in APP_DB */
+    sonicObjectID sonicID = sonicObjectID(0);       /* Allocated Sonic object ID in APP_DB */
 };
 
 /* Sonic ID allocator, used to allocate id for single type Sonic NHG Object */
@@ -172,7 +199,7 @@ public:
 
 private:
     map<sonicObjectID, bool> m_id_map;
-    sonicObjectID g_id;
+    uint32_t g_id;
     string m_table_name;
 };
 
@@ -282,10 +309,18 @@ public:
     };
 
     /*
+     * get the SonicPICContentObjectID of SonicPICContentEntry
+     * type uint32_t
+     */
+    uint32_t getSonicPicContentObjIdNum() {
+        return m_sonic_obj_id.id;
+    };
+
+    /*
      * set the value of entry from SonicPICContentObject
      * and sync the FV vector of entry
      */
-    int setEntry(const SonicPICContentObject &nhg);
+    int setEntry(const SonicPICContentObject &obj);
 
     /*
      * get the ref count of the entry
@@ -333,7 +368,7 @@ private:
     /*
      * set the value of entry from SonicPICContentObject for SRv6 PIC Object
      */
-    int setSRv6PICEntry(const SonicPICContentObject &nhg);
+    int setSRv6PICEntry(const SonicPICContentObject &obj);
 
     /*
      * sync the FV vector of entry
@@ -461,9 +496,21 @@ public:
     sonicObjectID getSonicObjID() { return m_sonic_obj_id; }
 
     /*
+     * get the Sonic Object ID of RIBNHGEntry
+     * type uint32_t
+     */
+    uint32_t getSonicObjIDNum() { return m_sonic_obj_id.id; }
+
+    /*
      * get the RIB ID of RIBNHGEntry
      */
     ribID getRIBID() { return m_rib_id; }
+
+    /*
+     * get the RIB ID of RIBNHGEntry
+     * type uint32_t
+     */
+    uint32_t getRIBIDNum() { return m_rib_id.id; }
 
     /*
      * get the address family of RIBNHGEntry
@@ -497,6 +544,14 @@ public:
      * for now only used for SRv6 VPN case
      */
     sonicObjectID getSonicPICObjID(){ return m_sonic_pic_obj_id;}
+
+    /*
+    * get the sonic pic Object ID of RIBNHGEntry
+    * for now only used for SRv6 VPN case
+     * type uint32_t
+    */
+    uint32_t getSonicPICObjIDNum(){ return m_sonic_pic_obj_id.id;}
+
 
     /*
      * get the sonic pic Object type of RIBNHGEntry
@@ -587,7 +642,7 @@ private:
     /*
      * RIB ID of the entry
      */
-    ribID m_rib_id = 0;
+    ribID m_rib_id = ribID(0);
 
     /*
      * RIB NHG table pointer of the entry
@@ -646,7 +701,7 @@ private:
     /*
      * Sonic NHG Object ID of the entry
      */
-    sonicObjectID m_sonic_obj_id = 0;
+    sonicObjectID m_sonic_obj_id = sonicObjectID(0);
 
     /*
      * single nexthop flag of the entry
@@ -679,7 +734,7 @@ private:
     /*
      * Sonic PIC Content Object ID of the entry
      */
-    sonicObjectID m_sonic_pic_obj_id = 0;
+    sonicObjectID m_sonic_pic_obj_id = sonicObjectID(0);
 
     /*
      * VPN SID str of the entry

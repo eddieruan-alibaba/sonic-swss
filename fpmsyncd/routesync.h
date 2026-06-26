@@ -13,6 +13,7 @@
 #include <bits/stdc++.h>
 #include <linux/version.h>
 #include <linux/seg6.h>
+#include "nhgmgr.h"
 
 #include <netlink/route/route.h>
 

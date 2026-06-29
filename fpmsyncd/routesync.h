@@ -288,7 +288,6 @@ private:
     struct nl_sock     *m_nl_sock;
     /* nexthop group table */
     ProducerStateTable  m_nexthop_groupTable;
-    ProducerStateTable  m_pic_context_groupTable;
     map<uint32_t,NextHopGroup> m_nh_groups;
 
     /* nhgmgr for rib/fib */

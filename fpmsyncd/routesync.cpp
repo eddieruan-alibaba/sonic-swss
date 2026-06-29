@@ -2411,8 +2411,6 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
     case RTM_DELNEXTHOP:
     case RTM_NEWNHGFIB:
     case RTM_DELNHGFIB:
-    case RTM_NEWPICCONTEXT:
-    case RTM_DELPICCONTEXT:
         hdr_len = sizeof(struct nhmsg);
         break;
     case RTM_NEWTFILTER:

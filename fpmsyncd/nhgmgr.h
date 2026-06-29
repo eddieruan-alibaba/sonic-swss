@@ -16,10 +16,10 @@
 
 #define NHG_DELIMITER ','
 /*
- * Aligns with FRR's NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL flag.
- * Indicates the NHG was received from an external protocol (e.g., BGP).
+ * NEXTHOP_GROUP_RECEIVED (1 << 12): set by zebra_nhg_mark_received_flag() on protocol-received
+ * NHEs and all their depends. This is the flag fpmsyncd uses for PIC context creation.
  */
-#define NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL (1 << 10)
+#define NEXTHOP_GROUP_RECEIVED (1 << 12)
 #define CHECK_FLAG(V,F)      ((V) & (F))
 
 

@@ -663,7 +663,7 @@ namespace ut_fpmsyncd
         fib::g_addr rmap_src_in;
         std::uint16_t weight_in = 1;
         std::uint8_t flags_in = 0;
-        std::uint32_t nhg_flags_in = 1024;
+        std::uint32_t nhg_flags_in = NEXTHOP_GROUP_RECEIVED;
         bool has_srv6 = true;
         bool has_seg6_segs = true;
         fib::nexthop_srv6 *nh_srv6_in = new fib::nexthop_srv6();

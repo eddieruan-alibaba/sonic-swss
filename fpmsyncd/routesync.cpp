@@ -1936,7 +1936,7 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
         // For SRv6 VPN scenarios, we always create a shared NHG object in Sonic.
         // So we no longer judge whether it is a single NHG, and directly get the corresponding NHG iD.
         vector<FieldValueTuple> fvVectorVpnRoute;
-        FieldValueTuple pic_context_id("pic_context_id", to_string(nhg_received_entry->getSonicObjIDNum()));
+        FieldValueTuple pic_context_id("pic_context_id", to_string(nhg_received_entry->getSonicPICObjIDNum()));
         fvVectorVpnRoute.push_back(pic_context_id);
 
         vector<FieldValueTuple> fvVector;
@@ -1954,8 +1954,8 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
         m_routeTable->set(routeTableKey, fvVectorVpnRoute);
 
         SWSS_LOG_INFO("onSrv6VpnRouteMsg: Filling the route table %s with nhg_received %d, pic_context_id: %d, nexthop_group: %d",
-               nhg_received_id, destipprefix,
-               nhg_received_entry->getSonicObjIDNum(), nhg_received_entry->getSonicObjIDNum());
+               destipprefix, nhg_received_id,
+               nhg_received_entry->getSonicPICObjIDNum(), nhg_received_entry->getSonicObjIDNum());
 
     }
 

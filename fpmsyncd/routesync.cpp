@@ -2918,6 +2918,81 @@ void RouteSync::onNextHopMsg(struct nlmsghdr *h, int len)
 }
 
 /*
+ * Write decoded NHG Full info to APPL_STATE_DB for debugging.
+ * key: nhg_id
+ * value: json (raw NextHopGroupFull payload), sonic_nhg_id,
+ *        pic_context_id (optional), create_time, update_time, status
+ */
+static void writeNHGFullStateTable(uint32_t id,
+                                   const nlohmann::ordered_json &j,
+                                   bool addSuccess,
+                                   swss::Table &stateTable,
+                                   RedisPipeline *statePipeline,
+                                   NHGMgr &nhgMgr)
+{
+    std::vector<FieldValueTuple> fvs;
+
+    /* Timestamps: create_time (preserved on update), update_time (always refreshed) */
+    auto now = std::chrono::system_clock::now();
+    auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    char time_buf[64];
+    std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", std::localtime(&time_t_now));
+    string now_str(time_buf);
+
+    /* Try to read existing create_time; if not found, this is a new entry */
+    string existing_create_time;
+    std::vector<FieldValueTuple> existing_fvs;
+    if (stateTable.get(to_string(id), existing_fvs))
+    {
+        for (auto &fv : existing_fvs)
+        {
+            if (fvField(fv) == "create_time")
+            {
+                existing_create_time = fvValue(fv);
+                break;
+            }
+        }
+    }
+    fvs.emplace_back("create_time", existing_create_time.empty() ? now_str : existing_create_time);
+    fvs.emplace_back("update_time", now_str);
+
+    /* Status flag */
+    fvs.emplace_back("status", addSuccess ? "OK" : "FAILED");
+
+    /* Sonic NHG ID -- only safe to access if add succeeded */
+    if (addSuccess)
+    {
+        RIBNHGEntry *entry = nhgMgr.getRIBNHGEntryByRIBID(id);
+        if (entry)
+        {
+            uint32_t sonicId = entry->getSonicObjIDNum();
+            fvs.emplace_back("sonic_nhg_id", sonicId != 0 ? to_string(sonicId) : "N/A");
+
+            /* Record pic_context_id if this NHG carries a Sonic PIC object */
+            if (entry->hasSonicPICObj())
+            {
+                uint32_t picId = entry->getSonicPICObjIDNum();
+                fvs.emplace_back("pic_context_id", picId != 0 ? to_string(picId) : "N/A");
+            }
+        }
+        else
+        {
+            fvs.emplace_back("sonic_nhg_id", "N/A");
+        }
+    }
+    else
+    {
+        fvs.emplace_back("sonic_nhg_id", "N/A");
+    }
+
+    /* Raw JSON string (pretty-printed for readability) */
+    fvs.emplace_back("json", j.dump(4));
+
+    stateTable.set(to_string(id), fvs);
+    statePipeline->flush();
+}
+
+/*
  * Handle Nexthop Full msg
  *
  * onNextHopFullMsg() decodes the NextHopGroupFull's JSON string
@@ -2995,95 +3070,8 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
             SWSS_LOG_INFO("Add NHG with id %d", nhg.id);
         }
 
-        /*
-         * Write decoded NHG Full info to APPL_STATE_DB for debugging.
-         * key: nhg_id
-         * value: NextHopGroupFull(json_str), nh_grp_full(list), depends(list), dependents(list),
-         *        sonic_nhg_id, create_time, update_time, status
-         */
-        std::vector<FieldValueTuple> fvs;
-
-        /* Timestamps: create_time (preserved on update), update_time (always refreshed) */
-        auto now = std::chrono::system_clock::now();
-        auto time_t_now = std::chrono::system_clock::to_time_t(now);
-        char time_buf[64];
-        std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", std::localtime(&time_t_now));
-        string now_str(time_buf);
-
-        /* Try to read existing create_time; if not found, this is a new entry */
-        string existing_create_time;
-        std::vector<FieldValueTuple> existing_fvs;
-        if (m_nhgFullStateTable.get(to_string(id), existing_fvs))
-        {
-            for (auto &fv : existing_fvs)
-            {
-                if (fvField(fv) == "create_time")
-                {
-                    existing_create_time = fvValue(fv);
-                    break;
-                }
-            }
-        }
-        fvs.emplace_back("create_time", existing_create_time.empty() ? now_str : existing_create_time);
-        fvs.emplace_back("update_time", now_str);
-
-        /* Status flag */
-        fvs.emplace_back("status", addSuccess ? "OK" : "FAILED");
-
-        /* Sonic NHG ID — only safe to access if add succeeded */
-        if (addSuccess)
-        {
-            RIBNHGEntry *entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(id);
-            if (entry)
-            {
-                uint32_t sonicId = entry->getSonicObjIDNum();
-                fvs.emplace_back("sonic_nhg_id", sonicId != 0 ? to_string(sonicId) : "N/A");
-            }
-            else
-            {
-                fvs.emplace_back("sonic_nhg_id", "N/A");
-            }
-        }
-        else
-        {
-            fvs.emplace_back("sonic_nhg_id", "N/A");
-        }
-
-        /* Raw JSON string (pretty-printed for readability) */
-        fvs.emplace_back("json", j.dump(4));
-
-        /* nh_grp_full list: format "[id:weight:num_direct,...]" */
-        string nh_grp_str = "[";
-        for (auto &ng : nhg.nh_grp_full_list)
-        {
-            if (nh_grp_str.size() > 1) nh_grp_str += ",";
-            nh_grp_str += to_string(ng.id) + ":" + to_string(ng.weight) + ":" + to_string(ng.num_direct);
-        }
-        nh_grp_str += "]";
-        fvs.emplace_back("nh_grp_full", nh_grp_str);
-
-        /* depends list: format "[id1,id2,...]" */
-        string depends_str = "[";
-        for (auto dep : nhg.depends)
-        {
-            if (depends_str.size() > 1) depends_str += ",";
-            depends_str += to_string(dep);
-        }
-        depends_str += "]";
-        fvs.emplace_back("depends", depends_str);
-
-        /* dependents list: format "[id1,id2,...]" */
-        string dependents_str = "[";
-        for (auto dep : nhg.dependents)
-        {
-            if (dependents_str.size() > 1) dependents_str += ",";
-            dependents_str += to_string(dep);
-        }
-        dependents_str += "]";
-        fvs.emplace_back("dependents", dependents_str);
-
-        m_nhgFullStateTable.set(to_string(id), fvs);
-        m_app_state_pipeline->flush();
+        writeNHGFullStateTable(id, j, addSuccess,
+                               m_nhgFullStateTable, m_app_state_pipeline, m_rib_fib_nhg_mgr);
     }
     else if (nlmsg_type == RTM_DELNHGFIB)
     {

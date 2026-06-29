@@ -1923,19 +1923,12 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
     {
         SWSS_LOG_INFO("onSrv6VpnRouteMsg: Received RTM_NEWSRV6VPNROUTE for route %s", routeTableKey);
 
-        RIBNHGEntry *nhg_entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_id);
         RIBNHGEntry *nhg_received_entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_received_id);
 
         if(nhg_received_entry == nullptr)
         {
             SWSS_LOG_ERROR("onSrv6VpnRouteMsg: Can not find nhg_received entry for vpn route :%s nhg_received_id: %d",
                 routeTableKey, nhg_received_id);
-            return ;
-        }
-        if(nhg_entry == nullptr)
-        {
-            SWSS_LOG_ERROR("onSrv6VpnRouteMsg: Can not find nhg entry for vpn route :%s nhg_id: %d",
-                routeTableKey, nhg_id);
             return ;
         }
 

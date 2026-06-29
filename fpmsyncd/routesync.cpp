@@ -2955,7 +2955,7 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
 
     addr_family = nhm->nh_family;
 
-    if (nlmsg_type == RTM_NEWNEXTHOP)
+    if (nlmsg_type == RTM_NEWNHGFIB)
     {
         SWSS_LOG_INFO("New nexthop group full message!");
 
@@ -3073,7 +3073,7 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         m_nhgFullStateTable.set(to_string(id), fvs);
         m_app_state_pipeline->flush();
     }
-    else if (nlmsg_type == RTM_DELNEXTHOP)
+    else if (nlmsg_type == RTM_DELNHGFIB)
     {
         SWSS_LOG_DEBUG("NextHopGroupFull del event: %d", id);
         m_rib_fib_nhg_mgr.delNHGFull(id);

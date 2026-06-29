@@ -302,7 +302,8 @@ void FpmLink::processFpmMessage(fpm_msg_hdr_t* hdr)
             /* rtnl api dont support RTM_NEWSRV6VPNROUTE/RTM_DELSRV6VPNROUTE yet. Processing as raw message*/
             processRawMsg(nl_hdr);
         }
-        else if(nl_hdr->nlmsg_type == RTM_NEWNEXTHOP || nl_hdr->nlmsg_type == RTM_DELNEXTHOP)
+        else if(nl_hdr->nlmsg_type == RTM_NEWNEXTHOP || nl_hdr->nlmsg_type == RTM_DELNEXTHOP
+                || nl_hdr->nlmsg_type == RTM_NEWNHGFIB || nl_hdr->nlmsg_type == RTM_DELNHGFIB)
         {
             /* rtnl api dont support RTM_NEWNEXTHOP/RTM_DELNEXTHOP yet. Processing as raw message*/
             processRawMsg(nl_hdr);

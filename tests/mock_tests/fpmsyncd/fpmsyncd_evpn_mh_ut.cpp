@@ -41,7 +41,7 @@ public:
     {
         m_db = std::make_shared<swss::DBConnector>("APPL_DB", 0);
         m_pipeline = std::make_shared<RedisPipeline>(m_db.get());
-        m_routeSync = std::make_unique<RouteSync>(m_pipeline.get());
+        m_routeSync = std::make_unique<RouteSync>(m_pipeline.get(), m_pipeline.get());
     }
 
     void TearDown() override

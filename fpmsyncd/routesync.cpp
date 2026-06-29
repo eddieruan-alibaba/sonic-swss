@@ -1926,10 +1926,16 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
         RIBNHGEntry *nhg_entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_id);
         RIBNHGEntry *nhg_received_entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_received_id);
 
-        if(nhg_entry == nullptr && nhg_received_entry == nullptr)
+        if(nhg_received_entry == nullptr)
         {
-            SWSS_LOG_ERROR("onSrv6VpnRouteMsg: Can not find nhg_received or nhg SONiC Obj entry for vpn route :%s nhg_id: %d nhg_received_id: %d", 
-                routeTableKey, nhg_id, nhg_received_id);
+            SWSS_LOG_ERROR("onSrv6VpnRouteMsg: Can not find nhg_received entry for vpn route :%s nhg_received_id: %d",
+                routeTableKey, nhg_received_id);
+            return ;
+        }
+        if(nhg_entry == nullptr)
+        {
+            SWSS_LOG_ERROR("onSrv6VpnRouteMsg: Can not find nhg entry for vpn route :%s nhg_id: %d",
+                routeTableKey, nhg_id);
             return ;
         }
 
@@ -2671,18 +2677,15 @@ void RouteSync::onRouteMsg(int nlmsg_type, struct nl_object *obj, char *vrf)
                 string nexthops = entry->getNextHopStr();
                 string ifnames = entry->getInterfaceNameStr();
 
-                FieldValueTuple gw("nexthop", nexthops.c_str());
-                FieldValueTuple intf("ifname", ifnames.c_str());
-                fvVector.push_back(gw);
-                fvVector.push_back(intf);
+                fvw.nexthop = std::move(nexthops);
+                fvw.ifname = std::move(ifnames);
 
                 SWSS_LOG_DEBUG("NextHop group id %d (zebra id: %d) is a single nexthop address. Filling the route table %s with nexthop and ifname", sonic_nhg_id, nhg_id, destipprefix);
             }
             else
             {
                 nhg_id_key = to_string(sonic_nhg_id);
-                FieldValueTuple nhg("nexthop_group", nhg_id_key.c_str());
-                fvVector.push_back(nhg);
+                fvw.nexthop_group = std::move(nhg_id_key);
             }
         }
         else
@@ -2981,14 +2984,22 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         nhg.ifname = ifname;
 
         /* Send constructed nhg to NHGMgr */
-        m_rib_fib_nhg_mgr.addNHGFull(nhg, addr_family);
-        SWSS_LOG_INFO("Add NHG with id %d", nhg.id);
+        int ret = m_rib_fib_nhg_mgr.addNHGFull(nhg, addr_family);
+        bool addSuccess = (ret == 0);
+        if (!addSuccess)
+        {
+            SWSS_LOG_ERROR("Failed to add NHG %d to rib_fib_nhg_mgr", nhg.id);
+        }
+        else
+        {
+            SWSS_LOG_INFO("Add NHG with id %d", nhg.id);
+        }
 
         /*
          * Write decoded NHG Full info to APPL_STATE_DB for debugging.
          * key: nhg_id
          * value: NextHopGroupFull(json_str), nh_grp_full(list), depends(list), dependents(list),
-         *        sonic_nhg_id, create_time, update_time
+         *        sonic_nhg_id, create_time, update_time, status
          */
         std::vector<FieldValueTuple> fvs;
 
@@ -3016,19 +3027,22 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         fvs.emplace_back("create_time", existing_create_time.empty() ? now_str : existing_create_time);
         fvs.emplace_back("update_time", now_str);
 
-        /* Sonic NHG ID */
-        /* Sonic NHG ID */
-        RIBNHGEntry *entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(id);
-        if (!entry)
-        {
-            SWSS_LOG_ERROR("RIBNHGEntry not found for id %d when writing NHG_FULL_STATE_TABLE", id);
-            return;
-        }
+        /* Status flag */
+        fvs.emplace_back("status", addSuccess ? "OK" : "FAILED");
 
-        uint32_t sonicId = entry->getSonicObjIDNum();
-        if (sonicId != 0)
+        /* Sonic NHG ID — only safe to access if add succeeded */
+        if (addSuccess)
         {
-            fvs.emplace_back("sonic_nhg_id", to_string(sonicId));
+            RIBNHGEntry *entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(id);
+            if (entry)
+            {
+                uint32_t sonicId = entry->getSonicObjIDNum();
+                fvs.emplace_back("sonic_nhg_id", sonicId != 0 ? to_string(sonicId) : "N/A");
+            }
+            else
+            {
+                fvs.emplace_back("sonic_nhg_id", "N/A");
+            }
         }
         else
         {

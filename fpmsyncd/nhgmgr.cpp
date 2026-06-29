@@ -360,7 +360,12 @@ int NHGMgr::createSonicPICObject(RIBNHGEntry *entry) {
         return -1;
     }
 
-    entry->createSRv6PICObjFromRIBEntry(sonicObj);
+    int buildRet = entry->createSRv6PICObjFromRIBEntry(sonicObj);
+    if (buildRet != 0) {
+        SWSS_LOG_ERROR("Failed to build SRv6 PIC object for NHG %d", entry->getRIBIDNum());
+        m_sonic_id_manager.freeID(sType, sonicPICContentID);
+        return buildRet;
+    }
     sonicObj.sonicID = sonicPICContentID;
 
     // add the SonicPICContentEntry

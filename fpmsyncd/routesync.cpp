@@ -1757,6 +1757,15 @@ void RouteSync::onSrv6MySidMsg(struct nlmsghdr *h, int len)
 
     setTable(fvw, m_srv6MySidTable);
 
+    /*
+     * Send offload-ack back to zebra so it can clear ROUTE_ENTRY_QUEUED /
+     * ROUTE_ENTRY_ROUTE_REPLACING under --asic-offload mode. FRR's
+     * fpm_read only dispatches RTM_NEWROUTE for offload notifications,
+     * so rewrite the type before replying.
+     */
+    h->nlmsg_type = RTM_NEWROUTE;
+    sendOffloadReply(h);
+
     return;
 }
 
@@ -1956,6 +1965,15 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
                destipprefix, nhg_received_id,
                nhg_received_entry->getSonicPICObjIDNum(), nhg_received_entry->getSonicObjIDNum());
 
+        /*
+         * Send offload-ack back to zebra so it can clear ROUTE_ENTRY_QUEUED /
+         * ROUTE_ENTRY_ROUTE_REPLACING under --asic-offload mode. FRR's
+         * fpm_read only dispatches RTM_NEWROUTE for offload notifications,
+         * so rewrite the type before replying. The wire body is already an
+         * RTM_NEWROUTE-compatible rtmsg.
+         */
+        h->nlmsg_type = RTM_NEWROUTE;
+        sendOffloadReply(h);
     }
 
     return;

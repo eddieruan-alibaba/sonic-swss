@@ -1534,6 +1534,14 @@ void RouteSync::onSrv6SteerRouteMsg(struct nlmsghdr *h, int len)
             rfvw.seg_src = std::move(src_addr_str);
         }
         setRouteWithWarmRestart(rfvw, *m_routeTable);
+
+        /*
+         * Send offload-ack back to zebra so it can clear ROUTE_ENTRY_QUEUED /
+         * ROUTE_ENTRY_ROUTE_REPLACING under --asic-offload mode. FRR's
+         * fpm_read only dispatches RTM_NEWROUTE for offload notifications;
+         * nlmsg_type is already RTM_NEWROUTE here, so no rewrite is needed.
+         */
+        sendOffloadReply(h);
     }
 
     return;

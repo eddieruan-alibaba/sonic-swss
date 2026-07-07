@@ -23,6 +23,10 @@
 #define RTM_F_OFFLOAD 0x4000 /* route is offloaded */
 #endif
 
+#ifndef RTM_NEWNHTEVENT
+#define RTM_NEWNHTEVENT 6000
+#endif
+
 using namespace std;
 
 /* Parse the Raw netlink msg */
@@ -403,6 +407,8 @@ private:
     /* Handle Nexthop message */
     void onNextHopMsg(struct nlmsghdr *h, int len);
     void onNextHopGroupFullMsg(struct nlmsghdr *h, int len);
+    /* Handle NHT (Nexthop Tracking) event message for PIC */
+    void onNhtEventMsg(struct nlmsghdr *h, int len);
     /* Get next hop group key */
     const string getNextHopGroupKeyAsString(uint32_t id) const;
     void installNextHopGroup(uint32_t nh_id);

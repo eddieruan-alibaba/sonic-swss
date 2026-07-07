@@ -1,6 +1,7 @@
 #include "nhgmgr.h"
 #include "logger.h"
 #include <string.h>
+#include <functional>
 
 
 using namespace std;
@@ -171,6 +172,13 @@ int NHGMgr::addNHGFull(const NextHopGroupFull &nhg, uint8_t af) {
             return ret;
         }
     }
+
+    // Index nexthop-to-RIBNHG reverse mapping for PIC backwalk
+    RIBNHGEntry *entry = getRIBNHGEntryByRIBID(nhg.id);
+    if (entry) {
+        indexNexthopToRIBNHG(entry);
+    }
+
     return 0;
 }
 
@@ -415,6 +423,9 @@ int NHGMgr::delNHGFull(uint32_t id) {
     if (entry == nullptr) {
         return 0;
     }
+
+    // Remove nexthop-to-RIBNHG reverse mapping before deletion
+    unindexNexthopToRIBNHG(entry);
 
     // del the sonic PIC Content first
     if (entry->hasSonicPICObj()) {
@@ -1580,4 +1591,284 @@ int SonicNHGObjectKey::createSonicPICContentObjectKey(RIBNHGEntry *entry, SonicN
     }
     key_out = createSonicPICContentObjectKey(obj);
     return 0;
+}
+
+// ============================================================
+// PIC Backwalk Implementation
+// ============================================================
+
+// --- Helper: split comma-separated string ---
+static std::vector<std::string> splitCsv(const std::string& s) {
+    std::vector<std::string> out;
+    size_t start = 0;
+    while (start < s.size()) {
+        size_t comma = s.find(',', start);
+        if (comma == std::string::npos) {
+            out.emplace_back(s.substr(start));
+            break;
+        }
+        out.emplace_back(s.substr(start, comma - start));
+        start = comma + 1;
+    }
+    return out;
+}
+
+// --- Index maintenance ---
+void NHGMgr::indexNexthopToRIBNHG(RIBNHGEntry* entry) {
+    if (!entry) return;
+    const std::string nh = entry->getNextHopStr();
+    if (nh.empty()) return;
+    bool isGlobal = (entry->getNHG().vrf_id == 0);
+    auto& idx = isGlobal ? m_nexthop_to_global_RIBNHG : m_nexthop_to_vrf_RIBNHG;
+    for (const auto& one : splitCsv(nh)) {
+        if (!one.empty()) {
+            idx[one].insert(ribID(entry->getRIBIDNum()));
+        }
+    }
+}
+
+void NHGMgr::unindexNexthopToRIBNHG(RIBNHGEntry* entry) {
+    if (!entry) return;
+    const std::string nh = entry->getNextHopStr();
+    if (nh.empty()) return;
+    bool isGlobal = (entry->getNHG().vrf_id == 0);
+    auto& idx = isGlobal ? m_nexthop_to_global_RIBNHG : m_nexthop_to_vrf_RIBNHG;
+    ribID id(entry->getRIBIDNum());
+    for (const auto& one : splitCsv(nh)) {
+        auto it = idx.find(one);
+        if (it != idx.end()) {
+            it->second.erase(id);
+            if (it->second.empty()) idx.erase(it);
+        }
+    }
+}
+
+bool NHGMgr::isDirectNexthop(RIBNHGEntry* entry, const std::string& failedNh) {
+    if (!entry) return false;
+    bool isGlobal = (entry->getNHG().vrf_id == 0);
+    const auto& idx = isGlobal ? m_nexthop_to_global_RIBNHG : m_nexthop_to_vrf_RIBNHG;
+    auto it = idx.find(failedNh);
+    if (it == idx.end()) return false;
+    return it->second.count(ribID(entry->getRIBIDNum())) > 0;
+}
+
+// --- Forward walk: collect all leaf paths from an NHG subtree ---
+std::vector<NexthopPath> NHGMgr::collectAllLeafPaths(ribID nhgId, std::set<ribID>& visited) {
+    if (visited.count(nhgId)) {
+        SWSS_LOG_ERROR("collectAllLeafPaths: cycle detected at RIB NHG %u", nhgId.id);
+        return {};
+    }
+    visited.insert(nhgId);
+
+    RIBNHGEntry* entry = getRIBNHGEntryByRIBID(nhgId.id);
+    if (!entry) return {};
+
+    if (entry->getDependsID().empty()) {
+        return { { entry->getNextHopStr(), entry->getInterfaceNameStr() } };
+    }
+
+    std::vector<NexthopPath> results;
+    for (ribID dep : entry->getDependsID()) {
+        auto sub = collectAllLeafPaths(dep, visited);
+        results.insert(results.end(), sub.begin(), sub.end());
+    }
+    return results;
+}
+
+// --- Forward walk with modified-set awareness ---
+std::vector<NexthopPath> NHGMgr::resolveLeafPaths(
+    ribID nhgId,
+    const std::map<ribID, NodeState>& modifiedSet,
+    std::set<ribID>& visited)
+{
+    if (visited.count(nhgId)) {
+        SWSS_LOG_ERROR("resolveLeafPaths: cycle detected at RIB NHG %u", nhgId.id);
+        return {};
+    }
+    visited.insert(nhgId);
+
+    auto ms_it = modifiedSet.find(nhgId);
+    if (ms_it == modifiedSet.end()) {
+        return collectAllLeafPaths(nhgId, visited);
+    }
+    const NodeState& myState = ms_it->second;
+
+    RIBNHGEntry* entry = getRIBNHGEntryByRIBID(nhgId.id);
+    if (!entry) return {};
+
+    if (entry->getDependsID().empty()) {
+        if (myState.fully_disabled) return {};
+        return { { entry->getNextHopStr(), entry->getInterfaceNameStr() } };
+    }
+
+    std::vector<NexthopPath> results;
+    for (ribID dep : entry->getDependsID()) {
+        auto en_it = myState.enable_group.find(dep);
+        if (en_it != myState.enable_group.end() && !en_it->second) {
+            continue;
+        }
+        if (modifiedSet.count(dep)) {
+            auto sub = resolveLeafPaths(dep, modifiedSet, visited);
+            results.insert(results.end(), sub.begin(), sub.end());
+        } else {
+            auto sub = collectAllLeafPaths(dep, visited);
+            results.insert(results.end(), sub.begin(), sub.end());
+        }
+    }
+    return results;
+}
+
+// --- Write reduced NHG paths to APPDB ---
+void NHGMgr::writeNhgToAppDb(RIBNHGEntry* entry, const std::vector<NexthopPath>& paths) {
+    if (!entry || paths.empty()) return;
+
+    std::string nhStr, ifStr;
+    for (size_t i = 0; i < paths.size(); i++) {
+        if (i > 0) { nhStr += ","; ifStr += ","; }
+        nhStr += paths[i].nexthop;
+        ifStr += paths[i].ifname;
+    }
+
+    // Use the Sonic Object ID as the APPDB key (consistent with RIBNHGTable::writeToDB)
+    sonicObjectID sonicId = entry->getSonicObjID();
+    if (sonicId.id == 0) {
+        SWSS_LOG_WARN("writeNhgToAppDb: entry %u has no sonic object ID, skip", entry->getRIBIDNum());
+        return;
+    }
+    std::string key = std::to_string(sonicId.id);
+
+    std::vector<FieldValueTuple> fvs;
+    fvs.emplace_back("nexthop", nhStr);
+    fvs.emplace_back("ifname", ifStr);
+
+    m_rib_nhg_table->m_nexthop_groupTable.set(key, fvs);
+    SWSS_LOG_INFO("writeNhgToAppDb: updated NHG rib_id=%u sonic_id=%u with %zu paths",
+                  entry->getRIBIDNum(), sonicId.id, paths.size());
+}
+
+// --- Backwalk core logic ---
+void NHGMgr::doBackwalkFromStart(ribID startNhgId, const std::string& failedNh,
+                                  std::map<ribID, NodeState>& modifiedSet)
+{
+    std::function<void(ribID)> walk = [&](ribID nhgId) {
+        RIBNHGEntry* entry = getRIBNHGEntryByRIBID(nhgId.id);
+        if (!entry) return;
+
+        for (ribID dep_id : entry->getDependentsID()) {
+            RIBNHGEntry* dep_entry = getRIBNHGEntryByRIBID(dep_id.id);
+            if (!dep_entry) {
+                SWSS_LOG_WARN("PIC core: dependent %u lookup failed", dep_id.id);
+                continue;
+            }
+
+            bool hit_direct = isDirectNexthop(dep_entry, failedNh);
+            bool hit_intersect = false;
+            for (ribID d : dep_entry->getDependsID()) {
+                if (modifiedSet.count(d)) { hit_intersect = true; break; }
+            }
+            bool walk_result = hit_direct || hit_intersect;
+
+            if (walk_result) {
+                NodeState ns;
+                if (hit_direct) {
+                    ns.fully_disabled = true;
+                    for (ribID d : dep_entry->getDependsID()) {
+                        ns.enable_group[d] = false;
+                    }
+                    modifiedSet[dep_id] = ns;
+                } else {
+                    for (ribID d : dep_entry->getDependsID()) {
+                        bool disabled = modifiedSet.count(d) &&
+                                        modifiedSet.at(d).fully_disabled;
+                        ns.enable_group[d] = !disabled;
+                    }
+                    bool all_disabled = true;
+                    for (auto& kv : ns.enable_group) {
+                        if (kv.second) { all_disabled = false; break; }
+                    }
+                    ns.fully_disabled = all_disabled;
+                    modifiedSet[dep_id] = ns;
+
+                    std::set<ribID> visited;
+                    auto paths = resolveLeafPaths(dep_id, modifiedSet, visited);
+                    if (!paths.empty()) {
+                        writeNhgToAppDb(dep_entry, paths);
+                    }
+                }
+            }
+
+            // Generic prune rule: stop walking if not affected and fewer than 2 depends
+            if (!walk_result && dep_entry->getDependsID().size() < 2) {
+                continue;
+            }
+            walk(dep_id);
+        }
+    };
+    walk(startNhgId);
+}
+
+void NHGMgr::backwalkPicCore(ribID startNhgId, const std::string& failedNh) {
+    std::map<ribID, NodeState> modifiedSet;
+
+    RIBNHGEntry* start = getRIBNHGEntryByRIBID(startNhgId.id);
+    if (!start) {
+        SWSS_LOG_WARN("PIC core: start %u lookup failed", startNhgId.id);
+        return;
+    }
+
+    if (isDirectNexthop(start, failedNh)) {
+        NodeState ns;
+        ns.fully_disabled = true;
+        for (ribID d : start->getDependsID()) {
+            ns.enable_group[d] = false;
+        }
+        modifiedSet[startNhgId] = ns;
+    } else if (start->getDependentsID().empty()) {
+        SWSS_LOG_DEBUG("PIC core: start %u is composite with no dependents; nothing to do",
+                       startNhgId.id);
+        return;
+    }
+
+    doBackwalkFromStart(startNhgId, failedNh, modifiedSet);
+}
+
+void NHGMgr::backwalkPicEdge(const std::string& failedNh) {
+    auto it = m_nexthop_to_vrf_RIBNHG.find(failedNh);
+    if (it == m_nexthop_to_vrf_RIBNHG.end()) {
+        return;  // No VRF/VPN RIB NHG references this nexthop
+    }
+
+    for (ribID startId : it->second) {
+        std::map<ribID, NodeState> modifiedSet;
+        RIBNHGEntry* start = getRIBNHGEntryByRIBID(startId.id);
+        if (!start) continue;
+
+        if (isDirectNexthop(start, failedNh)) {
+            NodeState ns;
+            ns.fully_disabled = true;
+            for (ribID d : start->getDependsID()) {
+                ns.enable_group[d] = false;
+            }
+            modifiedSet[startId] = ns;
+        }
+        doBackwalkFromStart(startId, failedNh, modifiedSet);
+    }
+}
+
+void NHGMgr::onNhtEvent(const fib::NhtEvent& event) {
+    // Strip prefix length from rnh_prefix to get the bare nexthop address
+    std::string failedNh = event.rnh_prefix;
+    auto slash = failedNh.find('/');
+    if (slash != std::string::npos) {
+        failedNh.erase(slash);
+    }
+
+    SWSS_LOG_INFO("onNhtEvent: rnh=%s prev_nhg=%u curr_nhg=%u failedNh=%s",
+                  event.rnh_prefix.c_str(),
+                  event.prev_resolved_nhg_id,
+                  event.curr_resolved_nhg_id,
+                  failedNh.c_str());
+
+    backwalkPicCore(ribID(event.prev_resolved_nhg_id), failedNh);
+    backwalkPicEdge(failedNh);
 }

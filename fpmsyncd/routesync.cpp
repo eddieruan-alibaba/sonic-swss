@@ -23,6 +23,9 @@
 #include <linux/seg6_iptunnel.h>
 #include "fpmsyncd/nhgmgr.h"
 #include <chrono>
+#include <nlohmann/json.hpp>
+#include <nexthopgroup/nhtevent.h>
+#include <nexthopgroup/nhtevent_json.h>
 
 using namespace std;
 using namespace swss;
@@ -2416,6 +2419,7 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
         && (h->nlmsg_type != RTM_DELSRV6LOCALSID)
         && (h->nlmsg_type != RTM_NEWTFILTER)
         && (h->nlmsg_type != RTM_DELTFILTER)
+        && (h->nlmsg_type != RTM_NEWNHTEVENT)
         && !(h->nlmsg_type >= RTM_FPM_FIRST && h->nlmsg_type <= RTM_FPM_LAST))
     {
         return;
@@ -2429,6 +2433,9 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
     case RTM_NEWNHGFIB:
     case RTM_DELNHGFIB:
         hdr_len = sizeof(struct nhmsg);
+        break;
+    case RTM_NEWNHTEVENT:
+        hdr_len = sizeof(struct rtmsg);
         break;
     case RTM_NEWTFILTER:
     case RTM_DELTFILTER:
@@ -2469,6 +2476,9 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
     case RTM_NEWNHGFIB:
     case RTM_DELNHGFIB:
         onNextHopGroupFullMsg(h, len);
+        return;
+    case RTM_NEWNHTEVENT:
+        onNhtEventMsg(h, len);
         return;
     case RTM_NEWSRV6VPNROUTE:
     case RTM_DELSRV6VPNROUTE:
@@ -3905,3 +3915,39 @@ void RouteSync::getNextHopGroupFields(const NextHopGroup& nhg, string& nexthops,
     }
 }
 
+/*
+ * Handle NHT (Nexthop Tracking) event message for PIC fast-reroute.
+ *
+ * The message carries a JSON payload describing which RNH prefix lost
+ * reachability, including the previous and current resolved NHG IDs.
+ * Phase 2 only handles the "withdraw" case (curr_resolved_nhg_id == 0).
+ */
+void RouteSync::onNhtEventMsg(struct nlmsghdr *h, int len)
+{
+    struct rtattr *tb[RTA_MAX + 1] = {};
+    struct rtmsg *rtm = (struct rtmsg *)NLMSG_DATA(h);
+
+    netlink_parse_rtattr(tb, RTA_MAX, RTM_RTA(rtm), len);
+
+    // NHA_JSON_STR = 2 (per sonic-fib FPM convention)
+    if (!tb[NHA_JSON_STR]) {
+        SWSS_LOG_WARN("onNhtEventMsg: missing NHA_JSON_STR attribute");
+        return;
+    }
+
+    const char *json_str = (const char *)RTA_DATA(tb[NHA_JSON_STR]);
+    try {
+        auto j = nlohmann::json::parse(json_str);
+        fib::NhtEvent ev = j.get<fib::NhtEvent>();
+
+        if (ev.curr_resolved_nhg_id != 0) {
+            SWSS_LOG_DEBUG("onNhtEventMsg: curr_nhg=%u != 0, Phase 1 skip",
+                           ev.curr_resolved_nhg_id);
+            return;
+        }
+
+        m_rib_fib_nhg_mgr.onNhtEvent(ev);
+    } catch (const std::exception& e) {
+        SWSS_LOG_WARN("onNhtEventMsg: JSON decode failed: %s", e.what());
+    }
+}

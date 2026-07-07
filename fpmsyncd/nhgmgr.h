@@ -7,6 +7,8 @@
 #include <nexthopgroup/nexthopgroupfull.h>
 #include <nexthopgroup/nexthopgroupfull_json.h>
 #include <nexthopgroup/nexthopgroup_debug.h>
+#include <nexthopgroup/nhtevent.h>
+#include <nexthopgroup/nhtevent_json.h>
 
 #include <string.h>
 #include <string>
@@ -797,6 +799,8 @@ private:
 class RIBNHGTable {
     /* Allow unit test fixture to access private members for testing */
     friend struct ut_fpmsyncd::FpmSyncdNhgMgr;
+    /* Allow NHGMgr to access m_nexthop_groupTable for PIC backwalk writes */
+    friend class NHGMgr;
 
 public:
     RIBNHGTable(RedisPipeline *pipeline, const std::string &tableName, bool isStateTable);
@@ -863,6 +867,16 @@ private:
     ProducerStateTable m_nexthop_groupTable;
 };
 
+struct NodeState {
+    bool fully_disabled = false;
+    std::map<ribID, bool> enable_group;
+};
+
+struct NexthopPath {
+    std::string nexthop;
+    std::string ifname;
+};
+
 class NHGMgr {
     /* Allow unit test fixture to access private members for testing */
     friend struct ut_fpmsyncd::FpmSyncdNhgMgr;
@@ -901,6 +915,9 @@ public:
     // get SonicPICContentEntry by RIB id
     SonicPICContentEntry *getSonicPICByRIBID(uint32_t id);
 
+    // Handle NHT (Nexthop Tracking) event for PIC fast-reroute
+    void onNhtEvent(const fib::NhtEvent& event);
+
 private:
 
     // Map zebra NHG id to received zebra_dplane_ctx + SONIC Context (a.k.a SONIC ZEBRA NHG)
@@ -923,6 +940,33 @@ private:
 
     // dump NHG Group Full for debugging
     void dumpNHGGroupFull(const NextHopGroupFull &nhg);
+
+    // --- PIC backwalk private methods ---
+    void backwalkPicCore(ribID startNhgId, const std::string& failedNexthop);
+    void backwalkPicEdge(const std::string& failedNexthop);
+
+    std::vector<NexthopPath> resolveLeafPaths(
+        ribID nhgId,
+        const std::map<ribID, NodeState>& modifiedSet,
+        std::set<ribID>& visited);
+
+    std::vector<NexthopPath> collectAllLeafPaths(
+        ribID nhgId,
+        std::set<ribID>& visited);
+
+    bool isDirectNexthop(RIBNHGEntry* entry, const std::string& failedNh);
+
+    void indexNexthopToRIBNHG(RIBNHGEntry* entry);
+    void unindexNexthopToRIBNHG(RIBNHGEntry* entry);
+
+    void doBackwalkFromStart(ribID startNhgId, const std::string& failedNh,
+                             std::map<ribID, NodeState>& modifiedSet);
+
+    void writeNhgToAppDb(RIBNHGEntry* entry, const std::vector<NexthopPath>& paths);
+
+    // --- Nexthop-to-RIBNHG reverse index ---
+    std::map<std::string, std::set<ribID>> m_nexthop_to_global_RIBNHG;
+    std::map<std::string, std::set<ribID>> m_nexthop_to_vrf_RIBNHG;
 
 };
 

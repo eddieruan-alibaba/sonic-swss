@@ -965,8 +965,12 @@ private:
     void writeNhgToAppDb(RIBNHGEntry* entry, const std::vector<NexthopPath>& paths);
 
     // --- Nexthop-to-RIBNHG reverse index ---
-    std::map<std::string, std::set<ribID>> m_nexthop_to_global_RIBNHG;
-    std::map<std::string, std::set<ribID>> m_nexthop_to_vrf_RIBNHG;
+    // Store RIBNHGEntry* rather than ribID: during warm reboot Zebra reassigns
+    // NHG IDs, so an ID-keyed index would be invalidated wholesale. Entry
+    // pointers stay consistent because del/add during reboot re-populate the
+    // index via unindex/index helpers.
+    std::map<std::string, std::set<RIBNHGEntry*>> m_nexthop_to_global_RIBNHG;
+    std::map<std::string, std::set<RIBNHGEntry*>> m_nexthop_to_vrf_RIBNHG;
 
 };
 

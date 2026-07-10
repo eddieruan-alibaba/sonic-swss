@@ -1622,7 +1622,7 @@ void NHGMgr::indexNexthopToRIBNHG(RIBNHGEntry* entry) {
     auto& idx = isGlobal ? m_nexthop_to_global_RIBNHG : m_nexthop_to_vrf_RIBNHG;
     for (const auto& one : splitCsv(nh)) {
         if (!one.empty()) {
-            idx[one].insert(ribID(entry->getRIBIDNum()));
+            idx[one].insert(entry);
         }
     }
 }
@@ -1633,11 +1633,10 @@ void NHGMgr::unindexNexthopToRIBNHG(RIBNHGEntry* entry) {
     if (nh.empty()) return;
     bool isGlobal = (entry->getNHG().vrf_id == 0);
     auto& idx = isGlobal ? m_nexthop_to_global_RIBNHG : m_nexthop_to_vrf_RIBNHG;
-    ribID id(entry->getRIBIDNum());
     for (const auto& one : splitCsv(nh)) {
         auto it = idx.find(one);
         if (it != idx.end()) {
-            it->second.erase(id);
+            it->second.erase(entry);
             if (it->second.empty()) idx.erase(it);
         }
     }
@@ -1649,7 +1648,7 @@ bool NHGMgr::isDirectNexthop(RIBNHGEntry* entry, const std::string& failedNh) {
     const auto& idx = isGlobal ? m_nexthop_to_global_RIBNHG : m_nexthop_to_vrf_RIBNHG;
     auto it = idx.find(failedNh);
     if (it == idx.end()) return false;
-    return it->second.count(ribID(entry->getRIBIDNum())) > 0;
+    return it->second.count(entry) > 0;
 }
 
 // --- Forward walk: collect all leaf paths from an NHG subtree ---
@@ -1838,10 +1837,10 @@ void NHGMgr::backwalkPicEdge(const std::string& failedNh) {
         return;  // No VRF/VPN RIB NHG references this nexthop
     }
 
-    for (ribID startId : it->second) {
-        std::map<ribID, NodeState> modifiedSet;
-        RIBNHGEntry* start = getRIBNHGEntryByRIBID(startId.id);
+    for (RIBNHGEntry* start : it->second) {
         if (!start) continue;
+        ribID startId(start->getRIBIDNum());
+        std::map<ribID, NodeState> modifiedSet;
 
         if (isDirectNexthop(start, failedNh)) {
             NodeState ns;

@@ -11,6 +11,26 @@
 #include <cstring>
 #include <cstdlib>
 #include <new>
+#include <linux/nexthop.h>
+
+/* NHA_JSON_STR attribute type (must match routesync.cpp / nhgmgr.cpp) */
+#ifndef NHA_JSON_STR
+#define NHA_JSON_STR 2
+#endif
+
+/* NHG message type defines (must match fpmlink.h) */
+#ifndef RTM_NEWNHGFIB
+#define RTM_NEWNHGFIB 5000
+#endif
+#ifndef RTM_DELNHGFIB
+#define RTM_DELNHGFIB 5001
+#endif
+
+/* NHA_RTA macro for extracting rtattrs from nhmsg */
+#ifndef NHA_RTA
+#define NHA_RTA(r) \
+    ((struct rtattr *)(((char *)(r)) + NLMSG_ALIGN(sizeof(struct nhmsg))))
+#endif
 
 #define private public // Need to modify internal cache
 #include "fpmlink.h"
@@ -94,6 +114,32 @@ namespace ut_fpmsyncd
         void callDumpNHGGroupFull(swss::NextHopGroupFull nhg)
         {
             m_nhgmgr->dumpNHGGroupFull(nhg);
+        }
+
+        // Warm restart accessors
+        NHGMgr::NhgWarmRestartState getWrState() {
+            return m_nhgmgr->m_nhgWrState;
+        }
+
+        std::map<sonicObjectID, NHGMgr::SavedNHGInfo>& getSavedNhgInfos() {
+            return m_nhgmgr->m_saved_nhg_infos;
+        }
+
+        std::map<std::string, NHGMgr::AppDbNHGEntry>& getAppDbNhgFvs() {
+            return m_nhgmgr->m_appdb_nhg_fvs;
+        }
+
+        std::set<ribID>& getReconciledIds() {
+            return m_nhgmgr->m_reconciled_ids;
+        }
+
+        // Create APPL_STATE_DB state table for save/load tests
+        std::shared_ptr<swss::DBConnector> m_state_db;
+        std::shared_ptr<swss::Table> m_stateTable;
+
+        void createStateTable() {
+            m_state_db = std::make_shared<swss::DBConnector>("APPL_STATE_DB", 0);
+            m_stateTable = std::make_shared<swss::Table>(m_state_db.get(), "NHG_FULL_STATE_TABLE");
         }
     };
 }
@@ -2481,4 +2527,401 @@ ASSERT_NO_FATAL_FAILURE(callDumpNHGGroupFull(nhgMulti));
 ASSERT_EQ(m_nhgmgr->delNHGFull(283), 0);
 ASSERT_EQ(m_nhgmgr->delNHGFull(284), 0);
 }
+
+/*
+ * Build a raw netlink NHG message from a NextHopGroupFull object.
+ * Mimics the format parsed by parseNHGFromRawMsg():
+ * nlmsghdr + nhmsg + NHA_ID + NHA_JSON_STR
+ */
+static std::vector<uint8_t> buildNHGRawMsg(const NextHopGroupFull &nhg, uint16_t cmd, uint8_t af = AF_INET)
+{
+    /* Serialize NHG to JSON */
+    nlohmann::ordered_json j = nhg;
+    std::string jsonStr = j.dump();
+
+    /* Calculate message sizes */
+    size_t nhmsg_size = sizeof(struct nhmsg);
+    size_t nha_id_size = RTA_LENGTH(sizeof(uint32_t));       /* NHA_ID attribute */
+    size_t nha_json_size = RTA_LENGTH(jsonStr.size() + 1);   /* NHA_JSON_STR attribute (null-terminated) */
+    size_t nlmsg_len = NLMSG_ALIGN(NLMSG_LENGTH(nhmsg_size)) + RTA_ALIGN(nha_id_size) + RTA_ALIGN(nha_json_size);
+
+    std::vector<uint8_t> buf(nlmsg_len, 0);
+
+    /* Fill nlmsghdr */
+    struct nlmsghdr *nlh = (struct nlmsghdr *)buf.data();
+    nlh->nlmsg_len = nlmsg_len;
+    nlh->nlmsg_type = cmd;
+    nlh->nlmsg_flags = NLM_F_CREATE;
+
+    /* Fill nhmsg */
+    struct nhmsg *nhm = (struct nhmsg *)NLMSG_DATA(nlh);
+    nhm->nh_family = af;
+
+    /* Add NHA_ID attribute */
+    uint8_t *ptr = (uint8_t *)nlh + NLMSG_ALIGN(NLMSG_LENGTH(nhmsg_size));
+    struct rtattr *rta_id = (struct rtattr *)ptr;
+    rta_id->rta_type = NHA_ID;
+    rta_id->rta_len = RTA_LENGTH(sizeof(uint32_t));
+    *(uint32_t *)RTA_DATA(rta_id) = nhg.id;
+
+    /* Add NHA_JSON_STR attribute */
+    ptr += RTA_ALIGN(nha_id_size);
+    struct rtattr *rta_json = (struct rtattr *)ptr;
+    rta_json->rta_type = NHA_JSON_STR;
+    rta_json->rta_len = RTA_LENGTH(jsonStr.size() + 1);
+    memcpy(RTA_DATA(rta_json), jsonStr.c_str(), jsonStr.size() + 1);
+
+    return buf;
+}
+
+// ==================== Warm Restart Tests ====================
+
+// --- FSM State Management ---
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_InitSetsState)
+{
+    m_nhgmgr->initWarmRestart();
+    EXPECT_EQ(getWrState(), NHGMgr::NHG_WR_INITIALIZED);
+    EXPECT_TRUE(m_nhgmgr->isNhgWarmRestartInProgress());
+}
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_NoneAndReconciledNotInProgress)
+{
+    /* Default state is NONE */
+    EXPECT_FALSE(m_nhgmgr->isNhgWarmRestartInProgress());
+
+    /* After reconcile, also not in progress */
+    m_nhgmgr->m_nhgWrState = NHGMgr::NHG_WR_RECONCILED;
+    EXPECT_FALSE(m_nhgmgr->isNhgWarmRestartInProgress());
+}
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_InitClearsMaps)
+{
+    /* Pre-populate maps */
+    m_nhgmgr->m_saved_nhg_infos[sonicObjectID(1)] = {sonicObjectID(1), sonicObjectID(0), AF_INET};
+    m_nhgmgr->m_appdb_nhg_fvs["test"] = {sonicObjectID(1), {}, false};
+    m_nhgmgr->m_reconciled_ids.insert(ribID(100));
+
+    m_nhgmgr->initWarmRestart();
+
+    EXPECT_TRUE(m_nhgmgr->m_saved_nhg_infos.empty());
+    EXPECT_TRUE(m_nhgmgr->m_appdb_nhg_fvs.empty());
+    EXPECT_TRUE(m_nhgmgr->m_reconciled_ids.empty());
+}
+
+// --- saveWarmRestartState ---
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_SaveSingleHopSkipped)
+{
+    createStateTable();
+
+    /* Add a normal single-hop NHG (no Sonic object created) */
+    auto nhg1 = createSingleIPv4NextHopNHGFull("10.0.0.1", "0.0.0.0", 100);
+    m_nhgmgr->addNHGFull(nhg1, AF_INET);
+
+    /* Save state */
+    m_nhgmgr->saveWarmRestartState(*m_stateTable);
+
+    /* Single-hop NHG should NOT be in state table (no Sonic object) */
+    std::vector<std::string> keys;
+    m_stateTable->getKeys(keys);
+
+    /* Only NHG_ID_ALLOCATOR should be present */
+    EXPECT_EQ(keys.size(), 1u);
+    EXPECT_EQ(keys[0], "NHG_ID_ALLOCATOR");
+}
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_SaveMultiHopPersisted)
+{
+    createStateTable();
+
+    /* Add single-hop NHGs first (dependencies for multi-hop) */
+    auto nhg1 = createSingleIPv4NextHopNHGFull("10.0.0.1", "0.0.0.0", 100);
+    auto nhg2 = createSingleIPv4NextHopNHGFull("10.0.0.2", "0.0.0.0", 200);
+    m_nhgmgr->addNHGFull(nhg1, AF_INET);
+    m_nhgmgr->addNHGFull(nhg2, AF_INET);
+
+    /* Add multi-hop NHG (this creates a Sonic NHG object) */
+    std::map<uint32_t, NextHopGroupFull> members = {{100, nhg1}, {200, nhg2}};
+    std::map<uint32_t, uint32_t> weights = {{100, 1}, {200, 1}};
+    std::map<uint32_t, uint32_t> numDirects = {{100, 0}, {200, 0}};
+    auto nhg3 = createMultiNextHopNHGFull(members, weights, numDirects, {100, 200}, {}, 300);
+    m_nhgmgr->addNHGFull(nhg3, AF_INET);
+
+    /* Save state */
+    m_nhgmgr->saveWarmRestartState(*m_stateTable);
+
+    /* Multi-hop NHG should be in state table */
+    std::string sonicIdStr;
+    bool found = m_stateTable->hget("300", "sonic_nhg_id", sonicIdStr);
+    EXPECT_TRUE(found);
+    EXPECT_FALSE(sonicIdStr.empty());
+
+    std::string afStr;
+    m_stateTable->hget("300", "af", afStr);
+    EXPECT_EQ(afStr, std::to_string(AF_INET));
+
+    std::string jsonStr;
+    m_stateTable->hget("300", "json", jsonStr);
+    EXPECT_FALSE(jsonStr.empty());
+}
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_SaveIDAllocator)
+{
+    createStateTable();
+
+    /* Add and remove some NHGs to advance the allocator */
+    auto nhg1 = createSingleIPv4NextHopNHGFull("10.0.0.1", "0.0.0.0", 100);
+    auto nhg2 = createSingleIPv4NextHopNHGFull("10.0.0.2", "0.0.0.0", 200);
+    m_nhgmgr->addNHGFull(nhg1, AF_INET);
+    m_nhgmgr->addNHGFull(nhg2, AF_INET);
+
+    m_nhgmgr->saveWarmRestartState(*m_stateTable);
+
+    std::string nextNhgId, nextPicId;
+    m_stateTable->hget("NHG_ID_ALLOCATOR", "next_nhg_id", nextNhgId);
+    m_stateTable->hget("NHG_ID_ALLOCATOR", "next_pic_id", nextPicId);
+
+    EXPECT_FALSE(nextNhgId.empty());
+    EXPECT_FALSE(nextPicId.empty());
+}
+
+// --- loadWarmRestartState ---
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_LoadRestoresState)
+{
+    createStateTable();
+
+    /* Manually populate state table (simulating data from a previous save) */
+    std::vector<swss::FieldValueTuple> fvs;
+    fvs.emplace_back("sonic_nhg_id", "42");
+    fvs.emplace_back("af", std::to_string(AF_INET));
+    fvs.emplace_back("json", "{}");
+    m_stateTable->set("100", fvs);
+
+    /* Populate allocator state */
+    std::vector<swss::FieldValueTuple> allocFvs;
+    allocFvs.emplace_back("next_nhg_id", "50");
+    allocFvs.emplace_back("next_pic_id", "10");
+    m_stateTable->set("NHG_ID_ALLOCATOR", allocFvs);
+
+    /* Also populate APP_DB with a NHG entry */
+    std::vector<swss::FieldValueTuple> appFvs;
+    appFvs.emplace_back("nexthop", "10.0.0.1");
+    appFvs.emplace_back("ifname", "Ethernet0");
+    m_nextHopTable->set("42", appFvs);
+
+    m_nhgmgr->initWarmRestart();
+    m_nhgmgr->loadWarmRestartState(*m_stateTable, *m_nextHopTable);
+
+    /* Verify state */
+    EXPECT_EQ(getWrState(), NHGMgr::NHG_WR_RESTORED);
+    EXPECT_FALSE(getSavedNhgInfos().empty());
+    EXPECT_FALSE(getAppDbNhgFvs().empty());
+}
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_LoadRestoresAllocator)
+{
+    createStateTable();
+
+    std::vector<swss::FieldValueTuple> allocFvs;
+    allocFvs.emplace_back("next_nhg_id", "100");
+    allocFvs.emplace_back("next_pic_id", "50");
+    m_stateTable->set("NHG_ID_ALLOCATOR", allocFvs);
+
+    m_nhgmgr->initWarmRestart();
+    m_nhgmgr->loadWarmRestartState(*m_stateTable, *m_nextHopTable);
+
+    EXPECT_EQ(getSonicIdManager().getNextNhgID(), 100u);
+    EXPECT_EQ(getSonicIdManager().getNextPicID(), 50u);
+}
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_LoadCorruptedDataGraceful)
+{
+    createStateTable();
+
+    /* Write corrupted data */
+    std::vector<swss::FieldValueTuple> fvs;
+    fvs.emplace_back("sonic_nhg_id", "not_a_number");
+    fvs.emplace_back("af", "xyz");
+    m_stateTable->set("999", fvs);
+
+    std::vector<swss::FieldValueTuple> allocFvs;
+    allocFvs.emplace_back("next_nhg_id", "garbage");
+    allocFvs.emplace_back("next_pic_id", "");
+    m_stateTable->set("NHG_ID_ALLOCATOR", allocFvs);
+
+    m_nhgmgr->initWarmRestart();
+
+    /* Should NOT crash */
+    EXPECT_NO_THROW(m_nhgmgr->loadWarmRestartState(*m_stateTable, *m_nextHopTable));
+
+    /* State should still be RESTORED (graceful degradation) */
+    EXPECT_EQ(getWrState(), NHGMgr::NHG_WR_RESTORED);
+}
+
+// --- Phase 1 reconcile ---
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_Phase1AddsSingleHop)
+{
+    m_nhgmgr->initWarmRestart();
+    m_nhgmgr->m_nhgWrState = NHGMgr::NHG_WR_RESTORED;
+
+    /* Build raw NHG message for single-hop */
+    auto nhg1 = createSingleIPv4NextHopNHGFull("10.0.0.1", "0.0.0.0", 100);
+    auto rawMsg = buildNHGRawMsg(nhg1, RTM_NEWNHGFIB, AF_INET);
+
+    std::vector<std::vector<uint8_t>> buffer;
+    buffer.push_back(rawMsg);
+
+    m_nhgmgr->reconcileNormalSingleHopNHGs(buffer);
+
+    /* Verify NHG was added to RIB table */
+    RIBNHGEntry *entry = getRibNhgTable()->getEntry(ribID(100));
+    EXPECT_NE(entry, nullptr);
+
+    /* Verify it was marked as reconciled */
+    EXPECT_TRUE(getReconciledIds().count(ribID(100)));
+}
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_Phase1SkipsMultiHop)
+{
+    m_nhgmgr->initWarmRestart();
+    m_nhgmgr->m_nhgWrState = NHGMgr::NHG_WR_RESTORED;
+
+    /* First add single-hop dependencies */
+    auto nhg1 = createSingleIPv4NextHopNHGFull("10.0.0.1", "0.0.0.0", 100);
+    auto nhg2 = createSingleIPv4NextHopNHGFull("10.0.0.2", "0.0.0.0", 200);
+
+    /* Build multi-hop NHG */
+    std::map<uint32_t, NextHopGroupFull> members = {{100, nhg1}, {200, nhg2}};
+    std::map<uint32_t, uint32_t> weights = {{100, 1}, {200, 1}};
+    std::map<uint32_t, uint32_t> numDirects = {{100, 0}, {200, 0}};
+    auto nhg3 = createMultiNextHopNHGFull(members, weights, numDirects, {100, 200}, {}, 300);
+
+    auto rawMsg1 = buildNHGRawMsg(nhg1, RTM_NEWNHGFIB, AF_INET);
+    auto rawMsg2 = buildNHGRawMsg(nhg2, RTM_NEWNHGFIB, AF_INET);
+    auto rawMsg3 = buildNHGRawMsg(nhg3, RTM_NEWNHGFIB, AF_INET);
+
+    std::vector<std::vector<uint8_t>> buffer = {rawMsg1, rawMsg2, rawMsg3};
+
+    m_nhgmgr->reconcileNormalSingleHopNHGs(buffer);
+
+    /* Single-hop NHGs should be reconciled */
+    EXPECT_NE(getRibNhgTable()->getEntry(ribID(100)), nullptr);
+    EXPECT_NE(getRibNhgTable()->getEntry(ribID(200)), nullptr);
+
+    /* Multi-hop NHG should NOT be reconciled (left for Phase 2) */
+    EXPECT_EQ(getRibNhgTable()->getEntry(ribID(300)), nullptr);
+    EXPECT_FALSE(getReconciledIds().count(ribID(300)));
+}
+
+// --- addNHGFullWithSonicId ---
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_AddWithSonicIdReusesId)
+{
+    /* Add single-hop dependencies first */
+    auto nhg1 = createSingleIPv4NextHopNHGFull("10.0.0.1", "0.0.0.0", 100);
+    auto nhg2 = createSingleIPv4NextHopNHGFull("10.0.0.2", "0.0.0.0", 200);
+    m_nhgmgr->addNHGFull(nhg1, AF_INET);
+    m_nhgmgr->addNHGFull(nhg2, AF_INET);
+
+    /* Pre-populate APP_DB with the expected NHG entry (simulating warm restart state) */
+    /* Use sonicObjectID(42) as the reused ID */
+    std::vector<swss::FieldValueTuple> appFvs;
+    appFvs.emplace_back("nexthop", "10.0.0.1,10.0.0.2");
+    appFvs.emplace_back("ifname", ",");
+    m_nextHopTable->set("42", appFvs);
+
+    /* Create multi-hop NHG and add with reused sonic ID */
+    std::map<uint32_t, NextHopGroupFull> members = {{100, nhg1}, {200, nhg2}};
+    std::map<uint32_t, uint32_t> weights = {{100, 1}, {200, 1}};
+    std::map<uint32_t, uint32_t> numDirects = {{100, 0}, {200, 0}};
+    auto nhg3 = createMultiNextHopNHGFull(members, weights, numDirects, {100, 200}, {}, 300);
+
+    int ret = m_nhgmgr->addNHGFullWithSonicId(nhg3, AF_INET, sonicObjectID(42), sonicObjectID(0));
+    EXPECT_EQ(ret, 0);
+
+    /* Verify the entry uses the reused sonic ID */
+    RIBNHGEntry *entry = getRibNhgTable()->getEntry(ribID(300));
+    ASSERT_NE(entry, nullptr);
+    EXPECT_EQ(entry->getSonicObjIDNum(), 42u);
+}
+
+// --- Save->Load->Reconcile E2E ---
+
+TEST_F(FpmSyncdNhgMgr, WarmRestart_EndToEnd)
+{
+    createStateTable();
+
+    // === Phase A: Normal operation -- add NHGs ===
+    auto nhg1 = createSingleIPv4NextHopNHGFull("10.0.0.1", "0.0.0.0", 100);
+    auto nhg2 = createSingleIPv4NextHopNHGFull("10.0.0.2", "0.0.0.0", 200);
+    m_nhgmgr->addNHGFull(nhg1, AF_INET);
+    m_nhgmgr->addNHGFull(nhg2, AF_INET);
+
+    std::map<uint32_t, NextHopGroupFull> members = {{100, nhg1}, {200, nhg2}};
+    std::map<uint32_t, uint32_t> weights = {{100, 1}, {200, 1}};
+    std::map<uint32_t, uint32_t> numDirects = {{100, 0}, {200, 0}};
+    auto nhg3 = createMultiNextHopNHGFull(members, weights, numDirects, {100, 200}, {}, 300);
+    m_nhgmgr->addNHGFull(nhg3, AF_INET);
+
+    /* Record the sonic ID assigned to the multi-hop NHG */
+    RIBNHGEntry *originalEntry = getRibNhgTable()->getEntry(ribID(300));
+    ASSERT_NE(originalEntry, nullptr);
+    uint32_t originalSonicId = originalEntry->getSonicObjIDNum();
+    EXPECT_GT(originalSonicId, 0u);
+
+    /* Read APP_DB entry for later comparison */
+    std::vector<swss::FieldValueTuple> originalAppFvs;
+    m_nextHopTable->get(std::to_string(originalSonicId), originalAppFvs);
+    EXPECT_FALSE(originalAppFvs.empty());
+
+    // === Phase B: Graceful shutdown -- save state ===
+    m_nhgmgr->saveWarmRestartState(*m_stateTable);
+
+    // === Phase C: Simulate restart -- clear RIB table ===
+    /*
+     * We don't actually destroy m_nhgmgr because the mock DB persists,
+     * but we clear the RIB table entries to simulate a process restart.
+     */
+    getRibNhgTable()->delEntry(100);
+    getRibNhgTable()->delEntry(200);
+    getRibNhgTable()->delEntry(300);
+
+    // === Phase D: Warm start -- load state ===
+    m_nhgmgr->initWarmRestart();
+    m_nhgmgr->loadWarmRestartState(*m_stateTable, *m_nextHopTable);
+    EXPECT_EQ(getWrState(), NHGMgr::NHG_WR_RESTORED);
+
+    // === Phase E: Reconcile ===
+    /* Build raw messages (simulating zebra re-sending the same NHGs) */
+    auto rawMsg1 = buildNHGRawMsg(nhg1, RTM_NEWNHGFIB, AF_INET);
+    auto rawMsg2 = buildNHGRawMsg(nhg2, RTM_NEWNHGFIB, AF_INET);
+    auto rawMsg3 = buildNHGRawMsg(nhg3, RTM_NEWNHGFIB, AF_INET);
+
+    std::vector<std::vector<uint8_t>> buffer = {rawMsg1, rawMsg2, rawMsg3};
+
+    /* Phase 1: single-hop */
+    m_nhgmgr->reconcileNormalSingleHopNHGs(buffer);
+    EXPECT_NE(getRibNhgTable()->getEntry(ribID(100)), nullptr);
+    EXPECT_NE(getRibNhgTable()->getEntry(ribID(200)), nullptr);
+
+    /* Phase 2: multi-hop with FV matching */
+    m_nhgmgr->reconcileNHGsWithSonicObj(buffer);
+
+    // === Phase F: Verify ===
+    /* Multi-hop NHG should exist */
+    RIBNHGEntry *reconciledEntry = getRibNhgTable()->getEntry(ribID(300));
+    ASSERT_NE(reconciledEntry, nullptr);
+
+    /* FSM should be RECONCILED */
+    EXPECT_EQ(getWrState(), NHGMgr::NHG_WR_RECONCILED);
+
+    /* The APP_DB entry should still exist with the same key */
+    std::vector<swss::FieldValueTuple> finalAppFvs;
+    m_nextHopTable->get(std::to_string(originalSonicId), finalAppFvs);
+    EXPECT_FALSE(finalAppFvs.empty());
+}
+
 }

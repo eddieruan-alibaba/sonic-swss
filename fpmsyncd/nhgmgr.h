@@ -4,6 +4,7 @@
 #include "dbconnector.h"
 #include "ipprefix.h"
 #include "producerstatetable.h"
+#include "table.h"
 #include <nexthopgroup/nexthopgroupfull.h>
 #include <nexthopgroup/nexthopgroupfull_json.h>
 #include <nexthopgroup/nexthopgroup_debug.h>
@@ -197,6 +198,26 @@ public:
      */
     bool isInUsed(sonicObjectID id);
 
+    /*
+     * Get the next candidate ID counter value.
+     * Used by warm restart to persist and restore allocator state.
+     */
+    uint32_t getNextID() const { return g_id; }
+
+    /*
+     * Set the next candidate ID counter value.
+     * Used by warm restart to restore allocator state so that
+     * post-restart allocation resumes from the saved counter.
+     */
+    void setNextID(uint32_t nextId) { g_id = nextId; }
+
+    /*
+     * Mark a specific ID as used in the allocator.
+     * Used by warm restart to reserve IDs that were allocated
+     * before restart so that new allocations do not collide.
+     */
+    void markIDUsed(sonicObjectID id) { m_id_map[id] = true; }
+
 private:
     map<sonicObjectID, bool> m_id_map;
     uint32_t g_id;
@@ -257,6 +278,55 @@ private:
      * get Sonic ID Allocator for specific type
      */
     SonicIDAllocator *getAllocator(sonicNhgObjType type);
+
+public:
+    /*
+     * Get the next candidate ID from the NHG allocator.
+     * Used by warm restart to persist allocator state.
+     */
+    uint32_t getNextNhgID() const {
+        return m_nhg_id_allocator ? m_nhg_id_allocator->getNextID() : 1;
+    }
+
+    /*
+     * Get the next candidate ID from the PIC allocator.
+     * Used by warm restart to persist allocator state.
+     */
+    uint32_t getNextPicID() const {
+        return m_pic_id_allocator ? m_pic_id_allocator->getNextID() : 1;
+    }
+
+    /*
+     * Set the next candidate ID on the NHG allocator.
+     * Used by warm restart to restore allocator state.
+     */
+    void setNextNhgID(uint32_t nextId) {
+        if (m_nhg_id_allocator) m_nhg_id_allocator->setNextID(nextId);
+    }
+
+    /*
+     * Set the next candidate ID on the PIC allocator.
+     * Used by warm restart to restore allocator state.
+     */
+    void setNextPicID(uint32_t nextId) {
+        if (m_pic_id_allocator) m_pic_id_allocator->setNextID(nextId);
+    }
+
+    /*
+     * Mark a NHG ID as used in the NHG allocator.
+     * Used by warm restart to reserve previously allocated IDs.
+     */
+    void markNhgIDUsed(sonicObjectID id) {
+        if (m_nhg_id_allocator) m_nhg_id_allocator->markIDUsed(id);
+    }
+
+    /*
+     * Mark a PIC ID as used in the PIC allocator.
+     * Used by warm restart to reserve previously allocated IDs.
+     */
+    void markPicIDUsed(sonicObjectID id) {
+        if (m_pic_id_allocator) m_pic_id_allocator->markIDUsed(id);
+    }
 };
 
 /* Sonic PIC entry */
@@ -845,6 +915,8 @@ public:
         m_sonic_id_manager = sonic_id_manager;
     }
 
+    const std::map<ribID, RIBNHGEntry*>& getNhgMap() const { return m_nhg_map; }
+
 private:
 
     SonicIDMgr *m_sonic_id_manager = nullptr;
@@ -901,6 +973,16 @@ public:
     // get SonicPICContentEntry by RIB id
     SonicPICContentEntry *getSonicPICByRIBID(uint32_t id);
 
+    // Warm restart
+    bool isNhgWarmRestartInProgress() const;
+    void initWarmRestart();
+    void saveWarmRestartState(swss::Table &stateTable);
+    void loadWarmRestartState(swss::Table &stateTable, swss::Table &appDbNhgTable);
+    void reconcileNormalSingleHopNHGs(std::vector<std::vector<uint8_t>> &nhgBuffer);
+    void reconcileNHGsWithSonicObj(std::vector<std::vector<uint8_t>> &nhgBuffer);
+    int addNHGFullWithSonicId(const fib::NextHopGroupFull &nhg, uint8_t af,
+                               sonicObjectID reuseNhgId, sonicObjectID reusePicId);
+
 private:
 
     // Map zebra NHG id to received zebra_dplane_ctx + SONIC Context (a.k.a SONIC ZEBRA NHG)
@@ -923,6 +1005,43 @@ private:
 
     // dump NHG Group Full for debugging
     void dumpNHGGroupFull(const NextHopGroupFull &nhg);
+
+    // === Warm restart support ===
+    enum NhgWarmRestartState {
+        NHG_WR_NONE,
+        NHG_WR_INITIALIZED,
+        NHG_WR_RESTORED,
+        NHG_WR_RECONCILING,
+        NHG_WR_RECONCILED,
+    };
+
+    struct SavedNHGInfo {
+        sonicObjectID sonicId;
+        sonicObjectID picObjId;
+        uint8_t af;
+    };
+
+    struct AppDbNHGEntry {
+        sonicObjectID sonicId;
+        std::vector<swss::FieldValueTuple> fvVector;
+        bool matched = false;
+    };
+
+    struct TempReconcileEntry {
+        fib::NextHopGroupFull nhg;
+        uint8_t af;
+        std::vector<swss::FieldValueTuple> fvVector;
+        sonicObjectID reuseSonicId;
+        sonicObjectID reusePicObjId;
+        bool needsSonicObj = false;
+    };
+
+    NhgWarmRestartState m_nhgWrState = NHG_WR_NONE;
+    std::map<sonicObjectID, SavedNHGInfo> m_saved_nhg_infos;
+    std::map<std::string, AppDbNHGEntry> m_appdb_nhg_fvs;
+    std::set<ribID> m_reconciled_ids;
+
+    AppDbNHGEntry* findMatchingAppDbEntry(const std::string &fvHash);
 
 };
 

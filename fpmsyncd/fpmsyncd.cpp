@@ -14,6 +14,8 @@
 #include "fpmsyncd/fpmsyncd.h"
 #include "fpmsyncd/routesync.h"
 
+#include <csignal>
+
 #include <netlink/route/route.h>
 #include <nexthopgroup/nexthopgroupfull.h>
 #include <nexthopgroup/nexthopgroupfull_json.h>
@@ -21,6 +23,18 @@
 
 using namespace std;
 using namespace swss;
+
+/*
+ * Graceful shutdown support.
+ * When SIGTERM or SIGINT is received, the flag is set so the main loop
+ * can save warm restart state (if applicable) and exit cleanly.
+ */
+static volatile sig_atomic_t gShutdownRequested = 0;
+
+static void sigterm_handler(int signo)
+{
+    gShutdownRequested = signo;
+}
 
 // gSelectTimeout specifies the maximum wait time in milliseconds (-1 == infinite)
 static int gSelectTimeout;
@@ -130,6 +144,22 @@ int main(int argc, char **argv)
         sync.setNhgFibEnabled(true);
     }
 
+    /* Register graceful shutdown signal handlers */
+    {
+        struct sigaction sigact = {};
+        sigemptyset(&sigact.sa_mask);
+        sigact.sa_handler = sigterm_handler;
+        sigact.sa_flags = 0;
+        if (sigaction(SIGTERM, &sigact, nullptr))
+        {
+            SWSS_LOG_ERROR("Failed to setup SIGTERM handler");
+        }
+        if (sigaction(SIGINT, &sigact, nullptr))
+        {
+            SWSS_LOG_ERROR("Failed to setup SIGINT handler");
+        }
+    }
+
     while (true)
     {
         try
@@ -190,6 +220,18 @@ int main(int argc, char **argv)
                 eoiuCheckTimer.start();
                 s.addSelectable(&eoiuCheckTimer);
                 SWSS_LOG_NOTICE("Warm-Restart eoiuCheckTimer timer started.");
+
+                /* NHG warm restart: load saved NHG state if nhg_fib is enabled */
+                if (sync.getNhgFibEnabled())
+                {
+                    sync.getNHGMgr().initWarmRestart();
+
+                    swss::Table appDbNhgTable(&db, APP_NEXTHOP_GROUP_TABLE_NAME);
+                    sync.getNHGMgr().loadWarmRestartState(
+                        sync.getNhgFullStateTable(),
+                        appDbNhgTable);
+                    SWSS_LOG_NOTICE("NHG warm restart: state loaded during warm start init");
+                }
             }
             else
             {
@@ -204,6 +246,28 @@ int main(int argc, char **argv)
 
                 /* Reading FPM messages forever (and calling "readMe" to read them) */
                 s.select(&temps, gSelectTimeout);
+
+                /*
+                 * Graceful shutdown: save NHG warm restart state and exit.
+                 * The save must complete while Redis (APPL_STATE_DB) is still
+                 * available, which is guaranteed because fpmsyncd is stopped
+                 * before the database docker during warm reboot.
+                 */
+                if (gShutdownRequested != 0)
+                {
+                    SWSS_LOG_NOTICE("Received signal %d, shutting down fpmsyncd gracefully",
+                                    static_cast<int>(gShutdownRequested));
+
+                    if (warmStartEnabled && sync.getNhgFibEnabled())
+                    {
+                        sync.getNHGMgr().saveWarmRestartState(sync.getNhgFullStateTable());
+                        SWSS_LOG_NOTICE("NHG warm restart: state saved during shutdown");
+                    }
+
+                    pipeline.flush();
+                    SWSS_LOG_NOTICE("fpmsyncd shutdown complete");
+                    return 0;
+                }
 
                 /*
                  * Upon expiration of the warm-restart timer or eoiu Hold Timer, proceed to run the
@@ -339,6 +403,13 @@ int main(int argc, char **argv)
         catch (FpmLink::FpmConnectionClosedException &e)
         {
             cout << "Connection lost, reconnecting..." << endl;
+
+            /* If shutdown was requested while connection was lost, exit cleanly */
+            if (gShutdownRequested != 0)
+            {
+                SWSS_LOG_NOTICE("Shutdown requested during reconnect, exiting");
+                return 0;
+            }
         }
     }
 

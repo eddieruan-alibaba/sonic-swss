@@ -4,6 +4,7 @@
 #include "logger.h"
 #include "select.h"
 #include "netmsg.h"
+#include "netdispatcher.h"
 #include "ipprefix.h"
 #include "dbconnector.h"
 #include "lib/orch_zmq_config.h"
@@ -3765,6 +3766,19 @@ void RouteSync::onWarmStartEnd(DBConnector& applStateDb)
 {
     SWSS_LOG_ENTER();
 
+    /* === NHG warm restart reconcile (must happen before route reconcile) === */
+    if (m_rib_fib_nhg_mgr.isNhgWarmRestartInProgress())
+    {
+        SWSS_LOG_NOTICE("NHG warm restart: starting reconcile in onWarmStartEnd");
+        m_rib_fib_nhg_mgr.reconcileNormalSingleHopNHGs(m_nhg_raw_buffer);
+        m_rib_fib_nhg_mgr.reconcileNHGsWithSonicObj(m_nhg_raw_buffer);
+        m_nhg_raw_buffer.clear();
+
+        replayBufferedRoutes();
+        SWSS_LOG_NOTICE("NHG warm restart: reconcile complete");
+    }
+    /* === End NHG warm restart reconcile === */
+
     if (isSuppressionEnabled())
     {
         markRoutesOffloaded(applStateDb);
@@ -3911,5 +3925,80 @@ void RouteSync::getNextHopGroupFields(const NextHopGroup& nhg, string& nexthops,
             ++i;
         }
     }
+}
+
+void RouteSync::bufferNHGRaw(struct nlmsghdr *nlh)
+{
+    m_nhg_raw_buffer.emplace_back(
+        reinterpret_cast<uint8_t*>(nlh),
+        reinterpret_cast<uint8_t*>(nlh) + nlh->nlmsg_len);
+}
+
+void RouteSync::bufferRouteRaw(struct nlmsghdr *nlh)
+{
+    m_route_raw_buffer.emplace_back(
+        reinterpret_cast<uint8_t*>(nlh),
+        reinterpret_cast<uint8_t*>(nlh) + nlh->nlmsg_len);
+}
+
+bool RouteSync::isNhgWarmRestartInProgress() const
+{
+    return m_rib_fib_nhg_mgr.isNhgWarmRestartInProgress();
+}
+
+void RouteSync::replayBufferedRoutes()
+{
+    SWSS_LOG_NOTICE("NHG warm restart: replaying %zu buffered route messages",
+                     m_route_raw_buffer.size());
+
+    for (auto &rawMsg : m_route_raw_buffer)
+    {
+        struct nlmsghdr *nlh = reinterpret_cast<struct nlmsghdr*>(rawMsg.data());
+
+        if (nlh->nlmsg_type == RTM_NEWSRV6VPNROUTE ||
+            nlh->nlmsg_type == RTM_DELSRV6VPNROUTE)
+        {
+            /* SRv6 VPN routes always go through raw processing */
+            onMsgRaw(nlh);
+        }
+        else if (nlh->nlmsg_type == RTM_NEWROUTE ||
+                 nlh->nlmsg_type == RTM_DELROUTE)
+        {
+            /*
+             * For RTM_NEWROUTE / RTM_DELROUTE we replicate the same dispatch
+             * logic used by FpmLink::processFpmMessage():
+             *   - routes with encapsulation -> onMsgRaw  (EVPN / SRv6 steer)
+             *   - plain routes              -> NetDispatcher -> onMsg -> onRouteMsg
+             */
+            uint16_t encap_type = getEncapType(nlh);
+            if (encap_type > 0)
+            {
+                onMsgRaw(nlh);
+            }
+            else
+            {
+                nl_msg *msg = nlmsg_convert(nlh);
+                if (msg)
+                {
+                    nlmsg_set_proto(msg, NETLINK_ROUTE);
+                    NetDispatcher::getInstance().onNetlinkMessage(msg);
+                    nlmsg_free(msg);
+                }
+                else
+                {
+                    SWSS_LOG_ERROR("NHG warm restart: failed to convert route nlmsg, type=%d",
+                                   nlh->nlmsg_type);
+                }
+            }
+        }
+        else
+        {
+            SWSS_LOG_WARN("NHG warm restart: unexpected buffered message type=%d, skipping",
+                           nlh->nlmsg_type);
+        }
+    }
+
+    m_route_raw_buffer.clear();
+    SWSS_LOG_NOTICE("NHG warm restart: route replay complete");
 }
 

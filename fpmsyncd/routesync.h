@@ -263,6 +263,14 @@ public:
         return m_warmStartHelper;
     }
 
+    void bufferNHGRaw(struct nlmsghdr *nlh);
+    void bufferRouteRaw(struct nlmsghdr *nlh);
+    bool isNhgWarmRestartInProgress() const;
+    void replayBufferedRoutes();
+    NHGMgr& getNHGMgr() { return m_rib_fib_nhg_mgr; }
+    swss::Table& getNhgFullStateTable() { return m_nhgFullStateTable; }
+    bool getNhgFibEnabled() const { return m_nhgFibEnabled; }
+
 private:
     /* ZMQ client */
     shared_ptr<ZmqClient> m_zmqClient;
@@ -304,6 +312,10 @@ private:
     bool                m_isSuppressionEnabled{false};
     bool                m_nhgFibEnabled{false};
     FpmInterface*       m_fpmInterface {nullptr};
+
+    /* Raw netlink message buffers for warm restart interception */
+    std::vector<std::vector<uint8_t>> m_nhg_raw_buffer;
+    std::vector<std::vector<uint8_t>> m_route_raw_buffer;
 
     /* Handle regular route (include VRF route) */
     void onRouteMsg(int nlmsg_type, struct nl_object *obj, char *vrf);

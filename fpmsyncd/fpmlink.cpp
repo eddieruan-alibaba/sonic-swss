@@ -276,6 +276,23 @@ void FpmLink::processFpmMessage(fpm_msg_hdr_t* hdr)
     /* Read all netlink messages inside FPM message */
     for (; NLMSG_OK (nl_hdr, msg_len); nl_hdr = NLMSG_NEXT(nl_hdr, msg_len))
     {
+        /* Warm restart: intercept NHG and route messages into raw buffers */
+        if (m_routesync->isNhgWarmRestartInProgress())
+        {
+            uint16_t type = nl_hdr->nlmsg_type;
+            if (type == RTM_NEWNHGFIB || type == RTM_DELNHGFIB)
+            {
+                m_routesync->bufferNHGRaw(nl_hdr);
+                continue;
+            }
+            if (type == RTM_NEWROUTE || type == RTM_DELROUTE ||
+                type == RTM_NEWSRV6VPNROUTE || type == RTM_DELSRV6VPNROUTE)
+            {
+                m_routesync->bufferRouteRaw(nl_hdr);
+                continue;
+            }
+        }
+
         /*
          * EVPN Type5 Add Routes need to be process in Raw mode as they contain
          * RMAC, VLAN and L3VNI information.

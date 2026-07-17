@@ -211,7 +211,7 @@ static std::string computeFvHash(const std::vector<swss::FieldValueTuple> &fvs)
  * Returns the sorted order as a vector of ribIDs. If cycles are detected,
  * the skipped entries are logged as a warning.
  */
-static std::vector<swss::ribID> topologicalSort(
+std::vector<swss::ribID> NHGMgr::topologicalSort(
         const std::map<swss::ribID, swss::NHGMgr::TempReconcileEntry> &entries)
 {
     std::map<uint32_t, int> inDegree;

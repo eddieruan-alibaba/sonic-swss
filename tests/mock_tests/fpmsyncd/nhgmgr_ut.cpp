@@ -2549,7 +2549,7 @@ static std::vector<uint8_t> buildNHGRawMsg(const NextHopGroupFull &nhg, uint16_t
 
     /* Fill nlmsghdr */
     struct nlmsghdr *nlh = (struct nlmsghdr *)buf.data();
-    nlh->nlmsg_len = nlmsg_len;
+    nlh->nlmsg_len = static_cast<__u32>(nlmsg_len);
     nlh->nlmsg_type = cmd;
     nlh->nlmsg_flags = NLM_F_CREATE;
 
@@ -2568,7 +2568,7 @@ static std::vector<uint8_t> buildNHGRawMsg(const NextHopGroupFull &nhg, uint16_t
     ptr += RTA_ALIGN(nha_id_size);
     struct rtattr *rta_json = (struct rtattr *)ptr;
     rta_json->rta_type = NHA_JSON_STR;
-    rta_json->rta_len = RTA_LENGTH(jsonStr.size() + 1);
+    rta_json->rta_len = static_cast<unsigned short>(RTA_LENGTH(jsonStr.size() + 1));
     memcpy(RTA_DATA(rta_json), jsonStr.c_str(), jsonStr.size() + 1);
 
     return buf;

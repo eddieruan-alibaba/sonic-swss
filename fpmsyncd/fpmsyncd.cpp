@@ -10,7 +10,7 @@
 #include "notificationconsumer.h"
 #include "subscriberstatetable.h"
 #include "warmRestartHelper.h"
-#include "recorder.h"
+#include "lib/recorder.h"
 #include "fpmsyncd/fpmlink.h"
 #include "fpmsyncd/fpmsyncd.h"
 #include "fpmsyncd/routesync.h"

@@ -7,7 +7,7 @@
 #include "ipprefix.h"
 #include "dbconnector.h"
 #include "lib/orch_zmq_config.h"
-#include "recorder.h"
+#include "lib/recorder.h"
 #include "producerstatetable.h"
 #include "fpmsyncd/fpmlink.h"
 #include "fpmsyncd/routesync.h"

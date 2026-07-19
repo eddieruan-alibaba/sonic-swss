@@ -122,6 +122,12 @@ public:
     ResPubRec();
 };
 
+/* Record Handler for fpmsyncd: zebra NHG/NHT events from zebra to fpm */
+class FpmSyncRec : public RecWriter {
+public:
+    FpmSyncRec();
+};
+
 class SaiRedisRec : public RecBase {
 public:
     SaiRedisRec();
@@ -137,6 +143,7 @@ public:
     static const std::string SAIREDIS_FNAME;
     static const std::string RESPPUB_FNAME;
     static const std::string RETRY_FNAME;
+    static const std::string FPMSYNC_FNAME;
 
     Recorder() = default;
     /* Individual Handlers */
@@ -144,6 +151,7 @@ public:
     SaiRedisRec sairedis;
     ResPubRec respub;
     RetryRec retry;
+    FpmSyncRec fpmsync;
 };
 
 AsyncSwssRecorderDebugStats getAsyncSwssRecorderDebugStats();

@@ -13,6 +13,7 @@ const std::string Recorder::SWSS_FNAME = "swss.rec";
 const std::string Recorder::SAIREDIS_FNAME = "sairedis.rec";
 const std::string Recorder::RESPPUB_FNAME = "responsepublisher.rec";
 const std::string Recorder::RETRY_FNAME = "retry.rec";
+const std::string Recorder::FPMSYNC_FNAME = "fpmsync.rec";
 
 Recorder& Recorder::Instance()
 {
@@ -39,6 +40,17 @@ RetryRec::RetryRec()
     setLocation(Recorder::DEFAULT_DIR);
     setFileName(Recorder::RETRY_FNAME);
     setName("Retry");
+}
+
+
+FpmSyncRec::FpmSyncRec()
+{
+    /* Set Default values */
+    setRecord(true);
+    setRotate(false);
+    setLocation(Recorder::DEFAULT_DIR);
+    setFileName(Recorder::FPMSYNC_FNAME);
+    setName("FpmSync");
 }
 
 

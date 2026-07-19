@@ -7,6 +7,7 @@
 #include "ipprefix.h"
 #include "dbconnector.h"
 #include "lib/orch_zmq_config.h"
+#include "recorder.h"
 #include "producerstatetable.h"
 #include "fpmsyncd/fpmlink.h"
 #include "fpmsyncd/routesync.h"
@@ -3059,6 +3060,9 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         /* Get NextHopGroupFull JSON string */
         json_str = (char *)RTA_DATA(tb[NHA_JSON_STR]);
         SWSS_LOG_NOTICE("Received NHGFULL %d JSON string: %s", id, json_str);
+        Recorder::Instance().fpmsync.record(
+            "NHGFULL|ADD|" + to_string(id) + "|af=" + to_string(addr_family) +
+            "|" + string(json_str));
 
         /* Conver JSON to NextHopGroupFull object */
         nlohmann::ordered_json j = nlohmann::ordered_json::parse(json_str);
@@ -3097,6 +3101,7 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
     else if (nlmsg_type == RTM_DELNHGFIB)
     {
         SWSS_LOG_DEBUG("NextHopGroupFull del event: %d", id);
+        Recorder::Instance().fpmsync.record("NHGFULL|DEL|" + to_string(id));
         m_rib_fib_nhg_mgr.delNHGFull(id);
         /* Remove debug state entry from APPL_STATE_DB */
         m_nhgFullStateTable.del(to_string(id));
@@ -3936,6 +3941,7 @@ void RouteSync::onNhtEventMsg(struct nlmsghdr *h, int len)
     }
 
     const char *json_str = (const char *)RTA_DATA(tb[NHA_JSON_STR]);
+    Recorder::Instance().fpmsync.record("NHT|" + string(json_str));
     try {
         auto j = nlohmann::json::parse(json_str);
         fib::NhtEvent ev = j.get<fib::NhtEvent>();

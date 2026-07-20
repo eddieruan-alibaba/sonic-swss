@@ -2884,14 +2884,13 @@ TEST_F(FpmSyncdNhgMgr, WarmRestart_EndToEnd)
     // === Phase B: Graceful shutdown -- save state ===
     m_nhgmgr->saveWarmRestartState(*m_stateTable);
 
-    // === Phase C: Simulate restart -- clear RIB table ===
+    // === Phase C: Simulate restart -- recreate NHGMgr ===
     /*
-     * We don't actually destroy m_nhgmgr because the mock DB persists,
-     * but we clear the RIB table entries to simulate a process restart.
+     * A real restart loses only in-memory state; APP_DB and APPL_STATE_DB
+     * persist. Do NOT use delEntry() here: it calls removeFromDB() and would
+     * delete the APP_DB entries that warm restart relies on.
      */
-    getRibNhgTable()->delEntry(100);
-    getRibNhgTable()->delEntry(200);
-    getRibNhgTable()->delEntry(300);
+    m_nhgmgr = std::make_shared<NHGMgr>(pipeline.get(), APP_NEXTHOP_GROUP_TABLE_NAME, APP_PIC_CONTEXT_TABLE_NAME, true);
 
     // === Phase D: Warm start -- load state ===
     m_nhgmgr->initWarmRestart();

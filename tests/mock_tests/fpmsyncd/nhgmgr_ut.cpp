@@ -121,6 +121,10 @@ namespace ut_fpmsyncd
             return m_nhgmgr->m_nhgWrState;
         }
 
+        void setWrState(NHGMgr::NhgWarmRestartState state) {
+            m_nhgmgr->m_nhgWrState = state;
+        }
+
         std::map<sonicObjectID, NHGMgr::SavedNHGInfo>& getSavedNhgInfos() {
             return m_nhgmgr->m_saved_nhg_infos;
         }
@@ -2591,22 +2595,22 @@ TEST_F(FpmSyncdNhgMgr, WarmRestart_NoneAndReconciledNotInProgress)
     EXPECT_FALSE(m_nhgmgr->isNhgWarmRestartInProgress());
 
     /* After reconcile, also not in progress */
-    m_nhgmgr->m_nhgWrState = NHGMgr::NHG_WR_RECONCILED;
+    setWrState(NHGMgr::NHG_WR_RECONCILED);
     EXPECT_FALSE(m_nhgmgr->isNhgWarmRestartInProgress());
 }
 
 TEST_F(FpmSyncdNhgMgr, WarmRestart_InitClearsMaps)
 {
     /* Pre-populate maps */
-    m_nhgmgr->m_saved_nhg_infos[sonicObjectID(1)] = {sonicObjectID(1), sonicObjectID(0), AF_INET};
-    m_nhgmgr->m_appdb_nhg_fvs["test"] = {sonicObjectID(1), {}, false};
-    m_nhgmgr->m_reconciled_ids.insert(ribID(100));
+    getSavedNhgInfos()[sonicObjectID(1)] = {sonicObjectID(1), sonicObjectID(0), AF_INET};
+    getAppDbNhgFvs()["test"] = {sonicObjectID(1), {}, false};
+    getReconciledIds().insert(ribID(100));
 
     m_nhgmgr->initWarmRestart();
 
-    EXPECT_TRUE(m_nhgmgr->m_saved_nhg_infos.empty());
-    EXPECT_TRUE(m_nhgmgr->m_appdb_nhg_fvs.empty());
-    EXPECT_TRUE(m_nhgmgr->m_reconciled_ids.empty());
+    EXPECT_TRUE(getSavedNhgInfos().empty());
+    EXPECT_TRUE(getAppDbNhgFvs().empty());
+    EXPECT_TRUE(getReconciledIds().empty());
 }
 
 // --- saveWarmRestartState ---
@@ -2765,7 +2769,7 @@ TEST_F(FpmSyncdNhgMgr, WarmRestart_LoadCorruptedDataGraceful)
 TEST_F(FpmSyncdNhgMgr, WarmRestart_Phase1AddsSingleHop)
 {
     m_nhgmgr->initWarmRestart();
-    m_nhgmgr->m_nhgWrState = NHGMgr::NHG_WR_RESTORED;
+    setWrState(NHGMgr::NHG_WR_RESTORED);
 
     /* Build raw NHG message for single-hop */
     auto nhg1 = createSingleIPv4NextHopNHGFull("10.0.0.1", "0.0.0.0", 100);
@@ -2787,7 +2791,7 @@ TEST_F(FpmSyncdNhgMgr, WarmRestart_Phase1AddsSingleHop)
 TEST_F(FpmSyncdNhgMgr, WarmRestart_Phase1SkipsMultiHop)
 {
     m_nhgmgr->initWarmRestart();
-    m_nhgmgr->m_nhgWrState = NHGMgr::NHG_WR_RESTORED;
+    setWrState(NHGMgr::NHG_WR_RESTORED);
 
     /* First add single-hop dependencies */
     auto nhg1 = createSingleIPv4NextHopNHGFull("10.0.0.1", "0.0.0.0", 100);

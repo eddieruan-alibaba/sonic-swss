@@ -342,6 +342,16 @@ int NHGMgr::updateExistingNHGFull(const NextHopGroupFull& nhg, uint8_t af) {
         }
     }
 
+    // If the entry already has a sonic object in APPDB and its fields changed
+    // (e.g. composite NHG lost a member), update the existing APPDB entry.
+    if (updated && entry->getSonicObjID().id != 0) {
+        ret = m_rib_nhg_table->writeToDB(entry);
+        if (ret != 0) {
+            SWSS_LOG_ERROR("Failed to update APPDB for NHG %d sonic id %d",
+                           nhg.id, entry->getSonicObjID().id);
+        }
+    }
+
     return 0;
 }
 

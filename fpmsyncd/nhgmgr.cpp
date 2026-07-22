@@ -1868,6 +1868,30 @@ void NHGMgr::onNhtEvent(const fib::NhtEvent& event) {
                   event.curr_resolved_nhg_id,
                   failedNh.c_str());
 
+    // Backwalk from the resolved NHG (may be a connected-route NHG with no
+    // dependents — in that case this is a no-op and the global index below
+    // handles the actual leaf NHG).
     backwalkPicCore(ribID(event.prev_resolved_nhg_id), failedNh);
+
+    // Backwalk from global leaf NHGs that directly reference this nexthop.
+    auto git = m_nexthop_to_global_RIBNHG.find(failedNh);
+    if (git != m_nexthop_to_global_RIBNHG.end()) {
+        for (RIBNHGEntry* leaf : git->second) {
+            if (!leaf) continue;
+            ribID leafId(leaf->getRIBIDNum());
+            std::map<ribID, NodeState> modifiedSet;
+            if (isDirectNexthop(leaf, failedNh)) {
+                NodeState ns;
+                ns.fully_disabled = true;
+                for (ribID d : leaf->getDependsID()) {
+                    ns.enable_group[d] = false;
+                }
+                modifiedSet[leafId] = ns;
+            }
+            doBackwalkFromStart(leafId, failedNh, modifiedSet);
+        }
+    }
+
+    // Backwalk VRF/VPN edge NHGs
     backwalkPicEdge(failedNh);
 }

@@ -9,6 +9,7 @@
 #include "linkcache.h"
 #include "fpminterface.h"
 #include "warmRestartHelper.h"
+#include "nhgWarmRestartAssist.h"
 #include <string.h>
 #include <bits/stdc++.h>
 #include <linux/version.h>
@@ -263,11 +264,9 @@ public:
         return m_warmStartHelper;
     }
 
-    void bufferNHGRaw(struct nlmsghdr *nlh);
-    void bufferRouteRaw(struct nlmsghdr *nlh);
-    bool isNhgWarmRestartInProgress() const;
-    void replayBufferedRoutes();
+    void dispatchBufferedRouteMsg(struct nlmsghdr *nlh);
     NHGMgr& getNHGMgr() { return m_rib_fib_nhg_mgr; }
+    NhgWarmRestartAssist& getNhgWarmAssist() { return m_nhgWarmAssist; }
     swss::Table& getNhgFullStateTable() { return m_nhgFullStateTable; }
     bool getNhgFibEnabled() const { return m_nhgFibEnabled; }
 
@@ -301,6 +300,9 @@ private:
     /* nhgmgr for rib/fib */
     NHGMgr m_rib_fib_nhg_mgr;
 
+    /* NHG warm restart assist (depends on m_rib_fib_nhg_mgr, must be declared after it) */
+    NhgWarmRestartAssist m_nhgWarmAssist;
+
     /* SID list to refcount */
     map<string, uint32_t> m_srv6_sidlist_refcnt;
 
@@ -312,10 +314,6 @@ private:
     bool                m_isSuppressionEnabled{false};
     bool                m_nhgFibEnabled{false};
     FpmInterface*       m_fpmInterface {nullptr};
-
-    /* Raw netlink message buffers for warm restart interception */
-    std::vector<std::vector<uint8_t>> m_nhg_raw_buffer;
-    std::vector<std::vector<uint8_t>> m_route_raw_buffer;
 
     /* Handle regular route (include VRF route) */
     void onRouteMsg(int nlmsg_type, struct nl_object *obj, char *vrf);

@@ -326,7 +326,10 @@ tests_fpmsyncd_SOURCES = fpmsyncd/test_fpmlink.cpp \
                          $(top_srcdir)/warmrestart/ \
                          $(top_srcdir)/fpmsyncd/fpmlink.cpp \
                          $(top_srcdir)/fpmsyncd/nhgmgr.cpp \
-                         $(top_srcdir)/fpmsyncd/routesync.cpp
+                         $(top_srcdir)/fpmsyncd/routesync.cpp \
+                         fpmsyncd/nhgWarmRestartAssist_ut.cpp \
+                         $(top_srcdir)/fpmsyncd/nhgWarmRestartAssist.cpp \
+                         $(top_srcdir)/warmrestart/warmRestartAssist.cpp
 
 tests_fpmsyncd_INCLUDES = $(tests_INCLUDES) -I$(top_srcdir)/tests_fpmsyncd -I$(top_srcdir)/lib -I$(top_srcdir)/warmrestart -I$(top_srcdir)/fpmsyncd
 tests_fpmsyncd_CXXFLAGS = -Wl,-wrap,rtnl_link_i2name

@@ -277,20 +277,19 @@ void FpmLink::processFpmMessage(fpm_msg_hdr_t* hdr)
     for (; NLMSG_OK (nl_hdr, msg_len); nl_hdr = NLMSG_NEXT(nl_hdr, msg_len))
     {
         /* Warm restart: intercept NHG and route messages into raw buffers */
-        if (m_routesync->isNhgWarmRestartInProgress())
+        auto &warmAssist = m_routesync->getNhgWarmAssist();
+        if (warmAssist.shouldIntercept(nl_hdr))
         {
             uint16_t type = nl_hdr->nlmsg_type;
             if (type == RTM_NEWNHGFIB || type == RTM_DELNHGFIB)
             {
-                m_routesync->bufferNHGRaw(nl_hdr);
-                continue;
+                warmAssist.bufferNHG(nl_hdr);
             }
-            if (type == RTM_NEWROUTE || type == RTM_DELROUTE ||
-                type == RTM_NEWSRV6VPNROUTE || type == RTM_DELSRV6VPNROUTE)
+            else
             {
-                m_routesync->bufferRouteRaw(nl_hdr);
-                continue;
+                warmAssist.bufferRoute(nl_hdr);
             }
+            continue;
         }
 
         /*

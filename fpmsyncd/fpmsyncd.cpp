@@ -224,10 +224,10 @@ int main(int argc, char **argv)
                 /* NHG warm restart: load saved NHG state if nhg_fib is enabled */
                 if (sync.getNhgFibEnabled())
                 {
-                    sync.getNHGMgr().initWarmRestart();
+                    sync.getNhgWarmAssist().initWarmStart();
 
                     swss::Table appDbNhgTable(&db, APP_NEXTHOP_GROUP_TABLE_NAME);
-                    sync.getNHGMgr().loadWarmRestartState(
+                    sync.getNhgWarmAssist().loadState(
                         sync.getNhgFullStateTable(),
                         appDbNhgTable);
                     SWSS_LOG_NOTICE("NHG warm restart: state loaded during warm start init");
@@ -260,7 +260,7 @@ int main(int argc, char **argv)
 
                     if (warmStartEnabled && sync.getNhgFibEnabled())
                     {
-                        sync.getNHGMgr().saveWarmRestartState(sync.getNhgFullStateTable());
+                        sync.getNhgWarmAssist().saveState(sync.getNhgFullStateTable());
                         SWSS_LOG_NOTICE("NHG warm restart: state saved during shutdown");
                     }
 

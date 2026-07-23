@@ -974,43 +974,12 @@ public:
     SonicPICContentEntry *getSonicPICByRIBID(uint32_t id);
 
     // Warm restart
-    enum NhgWarmRestartState {
-        NHG_WR_NONE,
-        NHG_WR_INITIALIZED,
-        NHG_WR_RESTORED,
-        NHG_WR_RECONCILING,
-        NHG_WR_RECONCILED,
-    };
-
-    struct SavedNHGInfo {
-        sonicObjectID sonicId;
-        sonicObjectID picObjId;
-        uint8_t af;
-    };
-
-    struct AppDbNHGEntry {
-        sonicObjectID sonicId;
-        std::vector<swss::FieldValueTuple> fvVector;
-        bool matched = false;
-    };
-
-    struct TempReconcileEntry {
-        fib::NextHopGroupFull nhg;
-        uint8_t af;
-        std::vector<swss::FieldValueTuple> fvVector;
-        sonicObjectID reuseSonicId;
-        sonicObjectID reusePicObjId;
-        bool needsSonicObj = false;
-    };
-
-    bool isNhgWarmRestartInProgress() const;
-    void initWarmRestart();
-    void saveWarmRestartState(swss::Table &stateTable);
-    void loadWarmRestartState(swss::Table &stateTable, swss::Table &appDbNhgTable);
-    void reconcileNormalSingleHopNHGs(std::vector<std::vector<uint8_t>> &nhgBuffer);
-    void reconcileNHGsWithSonicObj(std::vector<std::vector<uint8_t>> &nhgBuffer);
     int addNHGFullWithSonicId(const fib::NextHopGroupFull &nhg, uint8_t af,
                                sonicObjectID reuseNhgId, sonicObjectID reusePicId);
+
+    /* Accessors for NhgWarmRestartAssist (data path only) */
+    RIBNHGTable *getRIBNHGTable() { return m_rib_nhg_table; }
+    SonicIDMgr &getSonicIDMgr() { return m_sonic_id_manager; }
 
 private:
 
@@ -1034,17 +1003,6 @@ private:
 
     // dump NHG Group Full for debugging
     void dumpNHGGroupFull(const NextHopGroupFull &nhg);
-
-    // === Warm restart state ===
-    NhgWarmRestartState m_nhgWrState = NHG_WR_NONE;
-    std::map<sonicObjectID, SavedNHGInfo> m_saved_nhg_infos;
-    std::map<std::string, AppDbNHGEntry> m_appdb_nhg_fvs;
-    std::set<ribID> m_reconciled_ids;
-
-    AppDbNHGEntry* findMatchingAppDbEntry(const std::string &fvHash);
-
-    static std::vector<ribID> topologicalSort(
-        const std::map<ribID, TempReconcileEntry> &entries);
 
 };
 

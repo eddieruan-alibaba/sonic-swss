@@ -196,6 +196,7 @@ RouteSync::RouteSync(RedisPipeline *pipeline, RedisPipeline *app_state_pipeline)
     m_app_state_pipeline(app_state_pipeline),
     m_nhgFullStateTable(app_state_pipeline, "NHG_FULL_STATE_TABLE", true)
 {
+    m_rib_fib_nhg_mgr.setStateTable(&m_nhgFullStateTable, m_app_state_pipeline);
     m_nl_sock = nl_socket_alloc();
     nl_connect(m_nl_sock, NETLINK_ROUTE);
     rtnl_link_alloc_cache(m_nl_sock, AF_UNSPEC, &m_link_cache);

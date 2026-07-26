@@ -1751,6 +1751,28 @@ void NHGMgr::writeNhgToAppDb(RIBNHGEntry* entry, const std::vector<NexthopPath>&
     fvs.emplace_back("ifname", ifStr);
 
     m_rib_nhg_table->m_nexthop_groupTable.set(key, fvs);
+
+    // Sync sonic_nhg_id to APPL_STATE_DB so external observers (e.g. test
+    // assert scripts) can map sonic_id back to the RIB entry.
+    if (m_nhgFullStateTable && m_statePipeline) {
+        std::string stateKey = std::to_string(entry->getRIBIDNum());
+        std::vector<FieldValueTuple> stateFvs;
+        m_nhgFullStateTable->get(stateKey, stateFvs);
+        bool found = false;
+        for (auto &fv : stateFvs) {
+            if (fvField(fv) == "sonic_nhg_id") {
+                fvValue(fv) = key;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            stateFvs.emplace_back("sonic_nhg_id", key);
+        }
+        m_nhgFullStateTable->set(stateKey, stateFvs);
+        m_statePipeline->flush();
+    }
+
     SWSS_LOG_INFO("writeNhgToAppDb: updated NHG rib_id=%u sonic_id=%u with %zu paths",
                   entry->getRIBIDNum(), sonicId.id, paths.size());
 }

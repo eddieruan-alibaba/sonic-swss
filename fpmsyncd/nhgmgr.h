@@ -4,6 +4,7 @@
 #include "dbconnector.h"
 #include "ipprefix.h"
 #include "producerstatetable.h"
+#include "table.h"
 #include <nexthopgroup/nexthopgroupfull.h>
 #include <nexthopgroup/nexthopgroupfull_json.h>
 #include <nexthopgroup/nexthopgroup_debug.h>
@@ -918,6 +919,12 @@ public:
     // Handle NHT (Nexthop Tracking) event for PIC fast-reroute
     void onNhtEvent(const fib::NhtEvent& event);
 
+    // Inject APPL_STATE_DB table for syncing sonic_nhg_id during PIC backwalk
+    void setStateTable(swss::Table *stateTable, RedisPipeline *statePipeline) {
+        m_nhgFullStateTable = stateTable;
+        m_statePipeline = statePipeline;
+    }
+
 private:
 
     // Map zebra NHG id to received zebra_dplane_ctx + SONIC Context (a.k.a SONIC ZEBRA NHG)
@@ -971,6 +978,10 @@ private:
     // index via unindex/index helpers.
     std::map<std::string, std::set<RIBNHGEntry*>> m_nexthop_to_global_RIBNHG;
     std::map<std::string, std::set<RIBNHGEntry*>> m_nexthop_to_vrf_RIBNHG;
+
+    // APPL_STATE_DB table for syncing sonic_nhg_id during PIC backwalk
+    swss::Table *m_nhgFullStateTable = nullptr;
+    RedisPipeline *m_statePipeline = nullptr;
 
 };
 

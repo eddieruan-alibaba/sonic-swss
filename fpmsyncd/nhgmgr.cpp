@@ -1792,10 +1792,14 @@ void NHGMgr::doBackwalkFromStart(ribID startNhgId, const std::string& failedNh,
                 continue;
             }
 
-            bool hit_direct = isDirectNexthop(dep_entry, failedNh);
+            bool hit_direct = isDirectNexthop(dep_entry, failedNh) &&
+                              dep_entry->getDependsID().empty();
             bool hit_intersect = false;
             for (ribID d : dep_entry->getDependsID()) {
                 if (modifiedSet.count(d)) { hit_intersect = true; break; }
+            }
+            if (!hit_direct && !hit_intersect && isDirectNexthop(dep_entry, failedNh)) {
+                hit_intersect = true;
             }
             bool walk_result = hit_direct || hit_intersect;
 

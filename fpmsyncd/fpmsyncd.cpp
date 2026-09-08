@@ -14,6 +14,9 @@
 #include "fpmsyncd/routesync.h"
 
 #include <netlink/route/route.h>
+#include <nexthopgroup/nexthopgroupfull.h>
+#include <nexthopgroup/nexthopgroupfull_json.h>
+#include <nexthopgroup/c-api/nexthopgroup_capi.h>
 
 using namespace std;
 using namespace swss;
@@ -117,6 +120,13 @@ int main(int argc, char **argv)
         sync.setSuppressionEnabled(true);
     }
     SWSS_LOG_NOTICE("FIB suppression state: %s", suppressionEnabledStr.c_str());
+
+    std::string nhgFibEnabledStr;
+    deviceMetadataTable.hget("localhost", "nhg_fib", nhgFibEnabledStr);
+    if (nhgFibEnabledStr == "enabled")
+    {
+        sync.setNhgFibEnabled(true);
+    }
 
     while (true)
     {

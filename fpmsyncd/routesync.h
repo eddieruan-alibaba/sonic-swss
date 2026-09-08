@@ -321,7 +321,7 @@ private:
     void parseEncap(struct rtattr *tb, uint32_t &encap_value, string &rmac);
 
     void parseEncapSrv6SteerRoute(struct rtattr *tb, string &vpn_sid, string &src_addr);
-    bool parseEncapSrv6VpnRoute(struct rtattr *tb, uint32_t &pic_id, uint32_t &nhg_id);
+    bool parseEncapSrv6VpnRoute(struct rtattr *tb, uint32_t &nhg_received_id, uint32_t &nhg_id);
 
     bool parseSrv6MySid(struct rtattr *tb[], string &block_len,
                            string &node_len, string &func_len,
@@ -378,7 +378,7 @@ private:
     bool getSrv6SteerRouteNextHop(struct nlmsghdr *h, int received_bytes,
                         struct rtattr *tb[], string &vpn_sid, string &src_addr);
     bool getSrv6VpnRouteNextHop(struct nlmsghdr *h, int received_bytes,
-                               struct rtattr *tb[], uint32_t &pic_id,uint32_t &nhg_id);
+                               struct rtattr *tb[], uint32_t &nhg_received_id, uint32_t &nhg_id);
 
     /* Get next hop list */
     void getNextHopList(struct rtnl_route *route_obj, string& gw_list,

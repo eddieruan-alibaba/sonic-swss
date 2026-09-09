@@ -147,7 +147,8 @@ static nlmsghdr *createNhgFibMessage(
         return nullptr;
     }
 
-    if (json && !nl_attr_put(nlh, static_cast<unsigned int>(bufferSize), 2, json, strlen(json) + 1))
+    if (json && !nl_attr_put(nlh, static_cast<unsigned int>(bufferSize), 2, json,
+                             static_cast<unsigned int>(strlen(json) + 1)))
     {
         return nullptr;
     }

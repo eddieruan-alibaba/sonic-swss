@@ -90,7 +90,7 @@ TEST_F(FpmLinkTest, NhgFibMessagesUseRawDispatcher)
     auto *fpmHeader = reinterpret_cast<fpm_msg_hdr_t *>(buffer);
     fpmHeader->version = FPM_PROTO_VERSION;
     fpmHeader->msg_type = FPM_MSG_TYPE_NETLINK;
-    fpmHeader->msg_len = htons(sizeof(buffer));
+    fpmHeader->msg_len = htons(static_cast<uint16_t>(sizeof(buffer)));
 
     auto *nlHeader = reinterpret_cast<nlmsghdr *>(fpm_msg_data(fpmHeader));
     nlHeader->nlmsg_len = NLMSG_LENGTH(sizeof(nhmsg));

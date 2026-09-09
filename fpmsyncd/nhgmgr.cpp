@@ -372,7 +372,12 @@ int NHGMgr::createSonicPICObject(RIBNHGEntry *entry) {
         return -1;
     }
 
-    entry->createSRv6PICObjFromRIBEntry(sonicObj);
+    int buildRet = entry->createSRv6PICObjFromRIBEntry(sonicObj);
+    if (buildRet != 0) {
+        SWSS_LOG_ERROR("Failed to build SRv6 PIC object for NHG %d", entry->getRIBIDNum());
+        m_sonic_id_manager.freeID(sType, sonicPICContentID);
+        return buildRet;
+    }
     sonicObj.sonicID = sonicPICContentID;
 
     // add the SonicPICContentEntry
@@ -1135,7 +1140,7 @@ void RIBNHGEntry::checkNeedCreateSonicPICObj() {
      * This covers both single-hop SRv6 VPN nexthops (no group members) and
      * recursive SRv6 VPN nexthops that carry their own SRv6 VPN info.
      */
-    if (m_is_srv6_nhg && CHECK_FLAG(m_nhg.nhg_flags, NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL)) {
+    if (m_is_srv6_nhg && CHECK_FLAG(m_nhg.nhg_flags, NEXTHOP_GROUP_RECEIVED)) {
         m_sonic_obj_type = SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC_CONTEXT;
         m_has_sonic_pic_obj = true;
         m_is_shared_sonic_nhg = true;
@@ -1168,7 +1173,7 @@ void RIBNHGEntry::checkNeedCreateSonicNHGObj() {
         /*
          * Skipped received NHG without SRv6 info.
          */
-        if (CHECK_FLAG(m_nhg.nhg_flags, NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL)){
+        if (CHECK_FLAG(m_nhg.nhg_flags, NEXTHOP_GROUP_RECEIVED)){
             SWSS_LOG_DEBUG("NextHop %d is a received NHG without SRv6 info, skip create sonic object.", m_rib_id.id);
             m_create_sonic_nhg_obj = false;
             return ;
@@ -1177,7 +1182,7 @@ void RIBNHGEntry::checkNeedCreateSonicNHGObj() {
         /*
          * Skipped NHG with SRv6 info but not received NHG.
          */
-        if (!CHECK_FLAG(m_nhg.nhg_flags, NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL) && m_is_srv6_nhg){
+        if (!CHECK_FLAG(m_nhg.nhg_flags, NEXTHOP_GROUP_RECEIVED) && m_is_srv6_nhg){
             SWSS_LOG_DEBUG("NextHop %d is a NHG with SRv6 VPN, but not is received NHG, skip create sonic object.", m_rib_id.id);
             m_create_sonic_nhg_obj = false;
             return ;

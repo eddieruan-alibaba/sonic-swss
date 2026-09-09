@@ -16,10 +16,9 @@
 
 #define NHG_DELIMITER ','
 /*
- * Aligns with FRR's NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL flag.
- * Indicates the NHG was received from an external protocol (e.g., BGP).
+ * Set by zebra on protocol-received NHEs and propagated to their dependencies.
  */
-#define NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL (1 << 10)
+#define NEXTHOP_GROUP_RECEIVED (1 << 12)
 #define CHECK_FLAG(V,F)      ((V) & (F))
 
 

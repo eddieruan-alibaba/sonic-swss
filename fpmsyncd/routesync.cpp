@@ -21,6 +21,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/seg6_iptunnel.h>
 #include "fpmsyncd/nhgmgr.h"
+#include <chrono>
 
 using namespace std;
 using namespace swss;
@@ -187,6 +188,7 @@ RouteSync::RouteSync(RedisPipeline *pipeline, RedisPipeline *app_state_pipeline)
     m_srv6MySidTable(pipeline, APP_SRV6_MY_SID_TABLE_NAME, true),
     m_srv6SidListTable(pipeline, APP_SRV6_SID_LIST_TABLE_NAME, true),
     m_nl_sock(NULL), m_link_cache(NULL),
+    m_rib_fib_nhg_mgr(pipeline, APP_NEXTHOP_GROUP_TABLE_NAME, APP_PIC_CONTEXT_TABLE_NAME, true),
     m_app_state_pipeline(app_state_pipeline),
     m_nhgFullStateTable(app_state_pipeline, "NHG_FULL_STATE_TABLE", true)
 {
@@ -1921,69 +1923,26 @@ void RouteSync::onSrv6VpnRouteMsg(struct nlmsghdr *h, int len)
     {
         SWSS_LOG_INFO("onSrv6VpnRouteMsg: Received RTM_NEWSRV6VPNROUTE for route %s", routeTableKey);
 
-        RIBNHGEntry *nhg_entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_id);
         RIBNHGEntry *nhg_received_entry = m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg_received_id);
-
-        if(nhg_entry == nullptr && nhg_received_entry == nullptr)
+        if (nhg_received_entry == nullptr)
         {
-            SWSS_LOG_ERROR("onSrv6VpnRouteMsg: Can not find nhg_received or nhg SONiC Obj entry for vpn route :%s nhg_id: %d nhg_received_id: %d",
-                routeTableKey, nhg_id, nhg_received_id);
-            return ;
+            SWSS_LOG_ERROR("onSrv6VpnRouteMsg: Can not find nhg_received entry for vpn route :%s nhg_received_id: %d",
+                routeTableKey, nhg_received_id);
+            return;
         }
 
-        if(nhg_received_entry->isSingleNexthop())
-        {
-            SWSS_LOG_INFO("onSrv6VpnRouteMsg: Singleton, zebra nhg_received %d, corresponding SONiC Obj ID %d",
-                   nhg_received_id, nhg_received_entry->getSonicObjID());
+        vector<FieldValueTuple> fvVectorVpnRoute;
+        fvVectorVpnRoute.emplace_back("pic_context_id", to_string(nhg_received_entry->getSonicPICObjIDNum()));
+        fvVectorVpnRoute.emplace_back("nexthop_group", to_string(nhg_received_entry->getSonicObjIDNum()));
+        fvVectorVpnRoute.emplace_back("nexthop", "");
+        fvVectorVpnRoute.emplace_back("vpn_sid", "");
+        fvVectorVpnRoute.emplace_back("seg_src", "");
+        fvVectorVpnRoute.emplace_back("ifname", "");
+        m_routeTable->set(routeTableKey, fvVectorVpnRoute);
 
-            vector<FieldValueTuple> fvVector;
-
-            /* Get nexthop infos from nhg_received_entry */
-            FieldValueTuple nh("nexthop", nhg_received_entry->getNextHopStr().c_str());
-            FieldValueTuple vpn_sid("vpn_sid", nhg_received_entry->getVPNSIDStr().c_str());
-            FieldValueTuple seg_srcs("seg_src", nhg_received_entry->getSegSrcStr().c_str());
-            FieldValueTuple pic_context_id("pic_context_id", "");
-            FieldValueTuple nexthop_group("nexthop_group", "");
-            fvVector.push_back(nh);
-            fvVector.push_back(vpn_sid);
-            fvVector.push_back(seg_srcs);
-            fvVector.push_back(pic_context_id);
-            fvVector.push_back(nexthop_group);
-            //Using route-table only for single next-hop
-            FieldValueTuple intf("ifname", nhg_received_entry->getInterfaceNameStr().c_str());
-            fvVector.push_back(intf);
-
-            m_routeTable->set(routeTableKey, fvVector);
-
-            SWSS_LOG_INFO("onSrv6VpnRouteMsg: zebra nhg_received %d is a singleton. Filling the route table %s with nexthop: %s, vpn_sid: %s, seg_src: %s, and ifname: %s",
-                   nhg_received_id, destipprefix, nhg_received_entry->getNextHopStr().c_str(),
-                   nhg_received_entry->getVPNSIDStr().c_str(), nhg_received_entry->getSegSrcStr().c_str(),
-                   nhg_received_entry->getInterfaceNameStr().c_str());
-        }
-        else{
-            vector<FieldValueTuple> fvVectorVpnRoute;
-            FieldValueTuple pic_context_id("pic_context_id", to_string(nhg_received_entry->getSonicGatewayObjID()));
-            fvVectorVpnRoute.push_back(pic_context_id);
-
-            vector<FieldValueTuple> fvVector;
-            FieldValueTuple nexthop_group("nexthop_group", to_string(nhg_received_entry->getSonicObjID()));
-            fvVectorVpnRoute.push_back(nexthop_group);
-
-            FieldValueTuple nh("nexthop", "");
-            FieldValueTuple vpn_sid("vpn_sid", "");
-            FieldValueTuple seg_srcs_route("seg_src", "");
-            FieldValueTuple intf("ifname", "");
-            fvVectorVpnRoute.push_back(nh);
-            fvVectorVpnRoute.push_back(vpn_sid);
-            fvVectorVpnRoute.push_back(seg_srcs_route);
-            fvVectorVpnRoute.push_back(intf);
-            m_routeTable->set(routeTableKey, fvVectorVpnRoute);
-
-            SWSS_LOG_INFO("onSrv6VpnRouteMsg: nhg_received %d is multi-nexthop NHG. Filling the route table %s with pic_context_id: %d, nexthop_group: %d",
-                   nhg_received_id, destipprefix,
-                   nhg_received_entry->getSonicGatewayObjID(), nhg_received_entry->getSonicObjID());
-        }
-
+        SWSS_LOG_INFO("onSrv6VpnRouteMsg: Filling the route table %s with nhg_received %d, pic_context_id: %d, nexthop_group: %d",
+               destipprefix, nhg_received_id,
+               nhg_received_entry->getSonicPICObjIDNum(), nhg_received_entry->getSonicObjIDNum());
     }
 
     return;
@@ -2697,26 +2656,19 @@ void RouteSync::onRouteMsg(int nlmsg_type, struct nl_object *obj, char *vrf)
             }
             SWSS_LOG_INFO("Get NHG with id %d", nhg_id);
 
-            sonic_nhg_id = entry->getSonicObjID();
+            sonic_nhg_id = entry->getSonicObjIDNum();
 
             if(entry->isSingleNexthop())
             {
-                // Using route-table only for single next-hop
-                string nexthops = entry->getNextHopStr();
-                string ifnames = entry->getInterfaceNameStr();
-
-                FieldValueTuple gw("nexthop", nexthops.c_str());
-                FieldValueTuple intf("ifname", ifnames.c_str());
-                fvVector.push_back(gw);
-                fvVector.push_back(intf);
+                fvw.nexthop = entry->getNextHopStr();
+                fvw.ifname = entry->getInterfaceNameStr();
 
                 SWSS_LOG_DEBUG("NextHop group id %d (zebra id: %d) is a single nexthop address. Filling the route table %s with nexthop and ifname", sonic_nhg_id, nhg_id, destipprefix);
             }
             else
             {
                 nhg_id_key = to_string(sonic_nhg_id);
-                FieldValueTuple nhg("nexthop_group", nhg_id_key.c_str());
-                fvVector.push_back(nhg);
+                fvw.nexthop_group = std::move(nhg_id_key);
             }
         }
         else
@@ -3161,6 +3113,57 @@ void RouteSync::onPicContextMsg(struct nlmsghdr *h, int len)
     return;
 }
 
+static void writeNHGFullStateTable(uint32_t id,
+                                   const nlohmann::ordered_json &json,
+                                   bool addSuccess,
+                                   swss::Table &stateTable,
+                                   RedisPipeline *statePipeline,
+                                   NHGMgr &nhgMgr)
+{
+    vector<FieldValueTuple> values;
+    auto now = chrono::system_clock::now();
+    auto timeNow = chrono::system_clock::to_time_t(now);
+    char timeBuffer[64];
+    strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%d %H:%M:%S", localtime(&timeNow));
+    string nowString(timeBuffer);
+
+    string createTime;
+    vector<FieldValueTuple> existingValues;
+    if (stateTable.get(to_string(id), existingValues))
+    {
+        for (const auto &value : existingValues)
+        {
+            if (fvField(value) == "create_time")
+            {
+                createTime = fvValue(value);
+                break;
+            }
+        }
+    }
+
+    values.emplace_back("create_time", createTime.empty() ? nowString : createTime);
+    values.emplace_back("update_time", nowString);
+    values.emplace_back("status", addSuccess ? "OK" : "FAILED");
+
+    RIBNHGEntry *entry = addSuccess ? nhgMgr.getRIBNHGEntryByRIBID(id) : nullptr;
+    if (entry)
+    {
+        uint32_t sonicId = entry->getSonicObjIDNum();
+        values.emplace_back("sonic_nhg_id", sonicId ? to_string(sonicId) : "N/A");
+        uint32_t picId = entry->hasSonicPICObj() ? entry->getSonicPICObjIDNum() : 0;
+        values.emplace_back("pic_context_id", picId ? to_string(picId) : "N/A");
+    }
+    else
+    {
+        values.emplace_back("sonic_nhg_id", "N/A");
+        values.emplace_back("pic_context_id", "N/A");
+    }
+
+    values.emplace_back("json", json.dump(4));
+    stateTable.set(to_string(id), values);
+    statePipeline->flush();
+}
+
 /*
  * Handle Nexthop Full msg
  *
@@ -3172,15 +3175,8 @@ void RouteSync::onPicContextMsg(struct nlmsghdr *h, int len)
 void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
 {
     int nlmsg_type = h->nlmsg_type;
-    uint32_t id = 0;
-    uint8_t addr_family;
-    struct nhmsg *nhm = NULL;
+    struct nhmsg *nhm = (struct nhmsg *)NLMSG_DATA(h);
     struct rtattr *tb[NHA_MAX + 1] = {};
-    char ifname_unknown[IFNAMSIZ] = "unknown";
-    string ifname;
-    char *json_str = NULL;
-
-    nhm = (struct nhmsg *)NLMSG_DATA(h);
 
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Wcast-align"
@@ -3189,55 +3185,87 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
 
     netlink_parse_rtattr(tb, NHA_MAX, rta, len);
 
-    if (!tb[NHA_ID]) {
-        SWSS_LOG_ERROR(
-            "Nexthop group without an ID received from the zebra");
+    if (!tb[NHA_ID] || RTA_PAYLOAD(tb[NHA_ID]) < sizeof(uint32_t))
+    {
+        SWSS_LOG_ERROR("Nexthop group without a valid ID received from zebra");
         return;
     }
 
-    /* We use the ID as a key for nhg table */
-    id = *((uint32_t *)RTA_DATA(tb[NHA_ID]));
+    uint32_t id = *((uint32_t *)RTA_DATA(tb[NHA_ID]));
 
-    addr_family = nhm->nh_family;
-
-    if (nlmsg_type == RTM_NEWNEXTHOP)
+    if (nlmsg_type == RTM_NEWNHGFIB)
     {
-        SWSS_LOG_INFO("New nexthop group full message!");
-
-        /* Get NextHopGroupFull JSON string */
-        json_str = (char *)RTA_DATA(tb[NHA_JSON_STR]);
-        SWSS_LOG_NOTICE("Received NHGFULL %d JSON string: %s", id, json_str);
-
-        /* Conver JSON to NextHopGroupFull object */
-        nlohmann::ordered_json j = nlohmann::ordered_json::parse(json_str);
-        fib::NextHopGroupFull nhg;
-        fib::from_json(j, nhg);
-
-        /* Get ifname by ifindex */
-        char if_name[IFNAMSIZ] = {0};
-        if (!getIfName(nhg.ifindex, if_name, IFNAMSIZ))
+        if (!tb[NHA_JSON_STR] || RTA_PAYLOAD(tb[NHA_JSON_STR]) == 0)
         {
-            strcpy(if_name, ifname_unknown);
-        }
-        ifname = string(if_name);
-        if (ifname == "eth0" || ifname == "docker0")
-        {
-            SWSS_LOG_DEBUG("Skip routes to interfaces: %s id[%d]", ifname.c_str(), id);
+            SWSS_LOG_ERROR("NHGFIB add without JSON received for id %d", id);
             return;
         }
-        nhg.ifname = ifname;
 
-        /* Send constructed nhg to NHGMgr */
-        m_rib_fib_nhg_mgr.addNHGFull(nhg, addr_family);
-        SWSS_LOG_INFO("Add NHG with id %d", nhg.id);
+        const char *jsonData = (const char *)RTA_DATA(tb[NHA_JSON_STR]);
+        size_t jsonLength = RTA_PAYLOAD(tb[NHA_JSON_STR]);
+        if (jsonData[jsonLength - 1] == '\0')
+        {
+            --jsonLength;
+        }
+        string jsonString(jsonData, jsonLength);
+        SWSS_LOG_DEBUG("Received NHGFULL %d JSON string: %s", id, jsonString.c_str());
+
+        nlohmann::ordered_json json;
+        fib::NextHopGroupFull nhg;
+        try
+        {
+            json = nlohmann::ordered_json::parse(jsonString);
+            fib::from_json(json, nhg);
+        }
+        catch (const std::exception &error)
+        {
+            SWSS_LOG_ERROR("Failed to decode NHGFIB %d JSON: %s", id, error.what());
+            return;
+        }
+
+        if (nhg.id != id)
+        {
+            SWSS_LOG_ERROR("NHGFIB netlink ID %d does not match JSON ID %d", id, nhg.id);
+            return;
+        }
+
+        char ifName[IFNAMSIZ] = {0};
+        if (!getIfName(nhg.ifindex, ifName, IFNAMSIZ))
+        {
+            strcpy(ifName, "unknown");
+        }
+        string interfaceName(ifName);
+        if (interfaceName == "eth0" || interfaceName == "docker0")
+        {
+            SWSS_LOG_DEBUG("Skip routes to interfaces: %s id[%d]", interfaceName.c_str(), id);
+            return;
+        }
+        nhg.ifname = interfaceName;
+
+        int result = m_rib_fib_nhg_mgr.addNHGFull(nhg, nhm->nh_family);
+        bool addSuccess = result == 0;
+        if (addSuccess)
+        {
+            SWSS_LOG_INFO("Add NHG with id %d", nhg.id);
+        }
+        else
+        {
+            SWSS_LOG_ERROR("Failed to add NHG %d to rib_fib_nhg_mgr", nhg.id);
+        }
+
+        writeNHGFullStateTable(id, json, addSuccess,
+                               m_nhgFullStateTable, m_app_state_pipeline, m_rib_fib_nhg_mgr);
     }
-    else if (nlmsg_type == RTM_DELNEXTHOP)
+    else if (nlmsg_type == RTM_DELNHGFIB)
     {
         SWSS_LOG_DEBUG("NextHopGroupFull del event: %d", id);
-        m_rib_fib_nhg_mgr.delNHGFull(id);
+        if (m_rib_fib_nhg_mgr.delNHGFull(id) != 0)
+        {
+            SWSS_LOG_ERROR("Failed to delete NHG %d from rib_fib_nhg_mgr", id);
+        }
+        m_nhgFullStateTable.del(to_string(id));
+        m_app_state_pipeline->flush();
     }
-
-    return;
 }
 
 /*

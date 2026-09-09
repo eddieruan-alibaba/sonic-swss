@@ -840,7 +840,7 @@ ASSERT_EQ(m_nhgmgr->isSonicPICIDInUsed(swss::SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PI
 }
 
 /*
- * Test: single SRv6 VPN NHG without NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL.
+ * Test: single SRv6 VPN NHG without NEXTHOP_GROUP_RECEIVED.
  * Expect: entry is created in RIB table and marked as SRv6,
  *         but NO PIC object and NO sonic NHG object are created.
  */
@@ -1117,7 +1117,7 @@ NextHopGroupFull nhgObjA = createMultiNextHopNHGFull(
         { { ribIDB, 10 }, { ribIDC, 20 } },
         { { ribIDB, 0 }, { ribIDC, 0 } },
         dependsA, {}, ribIDA);
-nhgObjA.nhg_flags = 1024;
+nhgObjA.nhg_flags = NEXTHOP_GROUP_RECEIVED;
 
 ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjA, AF_INET6), 0);
 
@@ -1139,7 +1139,7 @@ NextHopGroupFull nhgObjANew = createMultiNextHopNHGFull(
         { { ribIDC, 20 }, { ribIDD, 30 } },
         { { ribIDC, 0 }, { ribIDD, 0 } },
         dependsANew, {}, ribIDA);
-nhgObjANew.nhg_flags = 1024;
+nhgObjANew.nhg_flags = NEXTHOP_GROUP_RECEIVED;
 
 ASSERT_EQ(m_nhgmgr->addNHGFull(nhgObjANew, AF_INET6), 0);
 
@@ -1571,7 +1571,7 @@ TEST_F(FpmSyncdNhgMgr, NonSRv6ReceivedFlagNHG)
 uint32_t ribID = 50;
 
 NextHopGroupFull nhgObj = createSingleIPv6NextHopNHGFull("fc00::1", "fc00::100", ribID);
-nhgObj.nhg_flags = NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL;
+nhgObj.nhg_flags = NEXTHOP_GROUP_RECEIVED;
 nhgObj.depends.resize(0);
 nhgObj.nh_grp_full_list.resize(0);
 
@@ -1586,7 +1586,7 @@ ASSERT_EQ(m_nhgmgr->getSonicPICByRIBID(ribID), nullptr);
 
 // Update: re-add with different gateway, should still not create sonic objects
 NextHopGroupFull nhgObjUpdated = createSingleIPv6NextHopNHGFull("fc00::2", "fc00::200", ribID);
-nhgObjUpdated.nhg_flags = NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL;
+nhgObjUpdated.nhg_flags = NEXTHOP_GROUP_RECEIVED;
 nhgObjUpdated.depends.resize(0);
 nhgObjUpdated.nh_grp_full_list.resize(0);
 
@@ -1640,7 +1640,7 @@ TEST_F(FpmSyncdNhgMgr, DeleteEntryWithNoSonicNHGID)
 {
 uint32_t ribID = 60;
 NextHopGroupFull nhgObj = createSingleIPv6NextHopNHGFull("fc00::1", "fc00::100", ribID);
-nhgObj.nhg_flags = NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL;
+nhgObj.nhg_flags = NEXTHOP_GROUP_RECEIVED;
 nhgObj.depends.resize(0);
 nhgObj.nh_grp_full_list.resize(0);
 
@@ -1848,7 +1848,7 @@ TEST_F(FpmSyncdNhgMgr, WriteToDBEmptyFvVector)
 {
 uint32_t ribID = 80;
 NextHopGroupFull nhgObj = createSingleIPv6NextHopNHGFull("fc00::1", "fc00::100", ribID);
-nhgObj.nhg_flags = NEXTHOP_GROUP_RECEIVED_FROM_EXTERNAL;
+nhgObj.nhg_flags = NEXTHOP_GROUP_RECEIVED;
 nhgObj.depends.resize(0);
 nhgObj.nh_grp_full_list.resize(0);
 

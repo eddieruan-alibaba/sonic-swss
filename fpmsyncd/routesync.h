@@ -13,6 +13,7 @@
 #include <bits/stdc++.h>
 #include <linux/version.h>
 #include <linux/seg6.h>
+#include "nhgmgr.h"
 
 #include <netlink/route/route.h>
 
@@ -302,6 +303,7 @@ private:
     /* nexthop group table */
     ProducerStateTable  m_nexthop_groupTable;
     ProducerStateTable  m_pic_context_groupTable;
+    NHGMgr m_rib_fib_nhg_mgr;
     map<uint32_t,NextHopGroup> m_nh_groups;
     /* SID list to refcount */
     map<string, uint32_t> m_srv6_sidlist_refcnt;

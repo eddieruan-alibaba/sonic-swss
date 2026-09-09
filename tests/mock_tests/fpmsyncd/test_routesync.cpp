@@ -128,6 +128,97 @@ class FpmSyncdResponseTestWithZmqNb : public FpmSyncdResponseTest {
     }
 };
 
+static nlmsghdr *createNhgFibMessage(
+    unsigned char *buffer,
+    size_t bufferSize,
+    uint16_t messageType,
+    uint32_t id,
+    const char *json)
+{
+    memset(buffer, 0, bufferSize);
+    auto *nlh = reinterpret_cast<nlmsghdr *>(buffer);
+    nlh->nlmsg_type = messageType;
+    nlh->nlmsg_len = NLMSG_LENGTH(sizeof(nhmsg));
+    auto *nhm = reinterpret_cast<nhmsg *>(NLMSG_DATA(nlh));
+    nhm->nh_family = AF_INET;
+
+    if (!nl_attr_put32(nlh, static_cast<unsigned int>(bufferSize), NHA_ID, id))
+    {
+        return nullptr;
+    }
+
+    if (json && !nl_attr_put(nlh, static_cast<unsigned int>(bufferSize), 2, json, strlen(json) + 1))
+    {
+        return nullptr;
+    }
+
+    return nlh;
+}
+
+TEST_F(FpmSyncdResponseTest, NhgFibAddDeleteUpdatesManagerAndStateTable)
+{
+    auto nhg = createSingleIPv4NextHopNHGFull("192.0.2.1", "192.0.2.2", 123);
+    nhg.ifindex = 21;
+    nlohmann::ordered_json json;
+    fib::to_json(json, nhg);
+    string jsonString = json.dump();
+    alignas(nlmsghdr) unsigned char buffer[NLMSG_SPACE(MAX_PAYLOAD)] = {};
+
+    auto *nlh = createNhgFibMessage(buffer, sizeof(buffer), RTM_NEWNHGFIB, nhg.id, jsonString.c_str());
+    ASSERT_NE(nlh, nullptr);
+    Table stateTable(m_appl_state_db.get(), "NHG_FULL_STATE_TABLE");
+    stateTable.set(to_string(nhg.id), {{"pic_context_id", "99"}});
+    EXPECT_CALL(m_mockRouteSync, getIfName(nhg.ifindex, _, _))
+        .WillOnce(DoAll(
+            [](int32_t, char *ifname, size_t size) {
+                strncpy(ifname, "Ethernet0", size);
+                ifname[size - 1] = '\0';
+            },
+            Return(true)));
+
+    m_mockRouteSync.onMsgRaw(nlh);
+
+    EXPECT_NE(m_mockRouteSync.m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg.id), nullptr);
+    vector<FieldValueTuple> values;
+    ASSERT_TRUE(stateTable.get(to_string(nhg.id), values));
+    EXPECT_THAT(values, Contains(FieldValueTuple("status", "OK")));
+    EXPECT_THAT(values, Contains(FieldValueTuple("pic_context_id", "N/A")));
+
+    nlh = createNhgFibMessage(buffer, sizeof(buffer), RTM_DELNHGFIB, nhg.id, nullptr);
+    ASSERT_NE(nlh, nullptr);
+    m_mockRouteSync.onMsgRaw(nlh);
+
+    EXPECT_EQ(m_mockRouteSync.m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(nhg.id), nullptr);
+    values.clear();
+    EXPECT_FALSE(stateTable.get(to_string(nhg.id), values));
+}
+
+TEST_F(FpmSyncdResponseTest, NhgFibRejectsMalformedJson)
+{
+    alignas(nlmsghdr) unsigned char buffer[NLMSG_SPACE(MAX_PAYLOAD)] = {};
+    auto *nlh = createNhgFibMessage(buffer, sizeof(buffer), RTM_NEWNHGFIB, 124, "{invalid");
+    ASSERT_NE(nlh, nullptr);
+
+    EXPECT_NO_THROW(m_mockRouteSync.onMsgRaw(nlh));
+    EXPECT_EQ(m_mockRouteSync.m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(124), nullptr);
+}
+
+TEST_F(FpmSyncdResponseTest, NhgFibRejectsMismatchedIds)
+{
+    auto nhg = createSingleIPv4NextHopNHGFull("192.0.2.3", "192.0.2.4", 125);
+    nlohmann::ordered_json json;
+    fib::to_json(json, nhg);
+    string jsonString = json.dump();
+    alignas(nlmsghdr) unsigned char buffer[NLMSG_SPACE(MAX_PAYLOAD)] = {};
+    auto *nlh = createNhgFibMessage(buffer, sizeof(buffer), RTM_NEWNHGFIB, 126, jsonString.c_str());
+    ASSERT_NE(nlh, nullptr);
+
+    m_mockRouteSync.onMsgRaw(nlh);
+
+    EXPECT_EQ(m_mockRouteSync.m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(125), nullptr);
+    EXPECT_EQ(m_mockRouteSync.m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(126), nullptr);
+}
+
 TEST_F(FpmSyncdResponseTest, RouteResponseFeedbackV4)
 {
     // Expect the message to zebra is sent
@@ -1817,19 +1908,12 @@ TEST_F(FpmSyncdResponseTest, TestSrv6VpnRoute_Add_NHG)
      */
     m_mockRouteSync.onSrv6VpnRouteMsg(&nl_obj->n, nl_obj->n.nlmsg_len);
 
-    /* Construct PIC Group */
-    NextHopGroup pic_group(pic_id, encap_src, "sr0");
-    pic_group.vpn_sid = vpn_sid;
-    pic_group.seg_src = encap_src;
-    m_mockRouteSync.m_nh_groups.insert({pic_id, pic_group});
-
-    /* Construct NHG */
-    vector<pair<uint32_t, uint8_t>> nhg_data;
-    nhg_data.push_back(make_pair(1, 1));
-    NextHopGroup nh_group(nhg_id, nhg_data);
-    nh_group.nexthop = "fe80::1";
-    nh_group.intf = "eth0";
-    m_mockRouteSync.m_nh_groups.insert({nhg_id, nh_group});
+    auto nhg_received = createSingleSRv6VPNNextHopNHGFull(
+        vpn_sid.c_str(), encap_src.c_str(), "fe80::1", pic_id);
+    ASSERT_EQ(m_mockRouteSync.m_rib_fib_nhg_mgr.addNHGFull(nhg_received, AF_INET6), 0);
+    RIBNHGEntry *nhg_received_entry =
+        m_mockRouteSync.m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(pic_id);
+    ASSERT_NE(nhg_received_entry, nullptr);
 
     /* Call the target function */
     m_mockRouteSync.onSrv6VpnRouteMsg(&nl_obj->n, nl_obj->n.nlmsg_len);
@@ -1845,16 +1929,17 @@ TEST_F(FpmSyncdResponseTest, TestSrv6VpnRoute_Add_NHG)
     // Check each attr value
     for (const auto& fv : fvs) {
         if (fvField(fv) == "pic_context_id") {
-            EXPECT_EQ(fvValue(fv), "67");
+            EXPECT_EQ(fvValue(fv), to_string(nhg_received_entry->getSonicPICObjIDNum()));
         } else if (fvField(fv) == "nexthop_group") {
-            EXPECT_EQ(fvValue(fv), "12");
+            EXPECT_EQ(fvValue(fv), to_string(nhg_received_entry->getSonicObjIDNum()));
         }
     }
 
     /* Check whether use the m_nexthop_groupTable.set */
     Table nhg_table(m_db.get(), APP_NEXTHOP_GROUP_TABLE_NAME);
     std::vector<FieldValueTuple> fvs_nhg;
-    std::string key_nhg = m_mockRouteSync.getNextHopGroupKeyAsString(nhg_id);
+    std::string key_nhg = m_mockRouteSync.getNextHopGroupKeyAsString(
+        nhg_received_entry->getSonicObjIDNum());
 
     /* Check the result */
     bool found_nhg = nhg_table.get(key_nhg.c_str(), fvs_nhg);
@@ -1915,17 +2000,12 @@ TEST_F(FpmSyncdResponseTest, TestSrv6VpnRoute_NH)
             return;
         }
 
-        /* Construct PIC Group */
-        NextHopGroup pic_group(pic_id, encap_src, "sr0");
-        pic_group.vpn_sid = vpn_sid;
-        pic_group.seg_src = encap_src;
-        m_mockRouteSync.m_nh_groups.insert({pic_id, pic_group});
-
-        /* Construct NHG with no group */
-        NextHopGroup nh_group(nhg_id, "fe80::2", "eth1");
-        nh_group.nexthop = "fe80::2";
-        nh_group.intf = "eth1";
-        m_mockRouteSync.m_nh_groups.insert({nhg_id, nh_group});
+        auto nhg_received = createSingleSRv6VPNNextHopNHGFull(
+            vpn_sid.c_str(), encap_src.c_str(), "fe80::2", pic_id);
+        ASSERT_EQ(m_mockRouteSync.m_rib_fib_nhg_mgr.addNHGFull(nhg_received, AF_INET6), 0);
+        RIBNHGEntry *nhg_received_entry =
+            m_mockRouteSync.m_rib_fib_nhg_mgr.getRIBNHGEntryByRIBID(pic_id);
+        ASSERT_NE(nhg_received_entry, nullptr);
 
         /* Call the target function */
         m_mockRouteSync.onSrv6VpnRouteMsg(&nl_obj->n, nl_obj->n.nlmsg_len);
@@ -1938,18 +2018,10 @@ TEST_F(FpmSyncdResponseTest, TestSrv6VpnRoute_NH)
         /* Check the result */
         bool found = route_table.get(key, fvs);
         EXPECT_TRUE(found);
-        // Check each attr value
-        for (const auto& fv : fvs) {
-            if (fvField(fv) == "nexthop") {
-                EXPECT_EQ(fvValue(fv), "2001:db8:1::1");
-            } else if (fvField(fv) == "vpn_sid") {
-                EXPECT_EQ(fvValue(fv), "2001:db8:1::2");
-            } else if (fvField(fv) == "seg_src") {
-                EXPECT_EQ(fvValue(fv), "2001:db8:1::1");
-            } else if (fvField(fv) == "ifname") {
-                EXPECT_EQ(fvValue(fv), "eth1");
-            }
-        }
+        EXPECT_THAT(fvs, Contains(FieldValueTuple(
+            "pic_context_id", to_string(nhg_received_entry->getSonicPICObjIDNum()))));
+        EXPECT_THAT(fvs, Contains(FieldValueTuple(
+            "nexthop_group", to_string(nhg_received_entry->getSonicObjIDNum()))));
 
         /* Free the memory */
         free(nl_obj);

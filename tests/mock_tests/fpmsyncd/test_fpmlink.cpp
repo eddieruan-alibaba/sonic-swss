@@ -5,6 +5,8 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#include <linux/nexthop.h>
+
 using namespace swss;
 
 using ::testing::_;
@@ -13,6 +15,17 @@ class MockMsgHandler : public NetMsg
 {
 public:
     MOCK_METHOD2(onMsg, void(int, nl_object*));
+};
+
+class MockRawRouteSync : public RouteSync
+{
+public:
+    MockRawRouteSync(RedisPipeline *pipeline, RedisPipeline *appStatePipeline) :
+        RouteSync(pipeline, appStatePipeline)
+    {
+    }
+
+    MOCK_METHOD(void, onMsgRaw, (nlmsghdr *), (override));
 };
 
 class FpmLinkTest : public ::testing::Test
@@ -34,7 +47,7 @@ public:
     RedisPipeline m_pipeline{&m_db, 1};
     DBConnector m_appl_state_db{"APPL_STATE_DB", 0};
     RedisPipeline m_app_state_pipeline{&m_appl_state_db};
-    RouteSync m_routeSync{&m_pipeline, &m_app_state_pipeline};
+    MockRawRouteSync m_routeSync{&m_pipeline, &m_app_state_pipeline};
     FpmLink m_fpm{&m_routeSync};
     MockMsgHandler m_mock;
 };
@@ -69,5 +82,24 @@ TEST_F(FpmLinkTest, TwoNlMessagesInFpmMessage)
     EXPECT_CALL(m_mock, onMsg(_, _)).Times(2);
 
     m_fpm.processFpmMessage(reinterpret_cast<fpm_msg_hdr_t*>(static_cast<void*>(fpmMsgBuffer)));
+}
+
+TEST_F(FpmLinkTest, NhgFibMessagesUseRawDispatcher)
+{
+    alignas(fpm_msg_hdr_t) unsigned char buffer[FPM_MSG_HDR_LEN + NLMSG_LENGTH(sizeof(nhmsg))] = {};
+    auto *fpmHeader = reinterpret_cast<fpm_msg_hdr_t *>(buffer);
+    fpmHeader->version = FPM_PROTO_VERSION;
+    fpmHeader->msg_type = FPM_MSG_TYPE_NETLINK;
+    fpmHeader->msg_len = htons(sizeof(buffer));
+
+    auto *nlHeader = reinterpret_cast<nlmsghdr *>(fpm_msg_data(fpmHeader));
+    nlHeader->nlmsg_len = NLMSG_LENGTH(sizeof(nhmsg));
+
+    EXPECT_CALL(m_routeSync, onMsgRaw(nlHeader)).Times(2);
+
+    nlHeader->nlmsg_type = RTM_NEWNHGFIB;
+    m_fpm.processFpmMessage(fpmHeader);
+    nlHeader->nlmsg_type = RTM_DELNHGFIB;
+    m_fpm.processFpmMessage(fpmHeader);
 }
 

@@ -11,8 +11,11 @@
 #include <string.h>
 #include <string>
 #include <algorithm>
+#include <functional>
+#include <map>
 #include <memory>
 #include <set>
+#include <vector>
 
 #define NHG_DELIMITER ','
 /*
@@ -485,6 +488,12 @@ public:
     vector<FieldValueTuple> getFvVector() { return m_fvVector; }
 
     /*
+     * rebuild the FV vector with only the given group members enabled, for
+     * the PIC fix-up write; the cached fields of the entry are left alone.
+     */
+    vector<FieldValueTuple> getReducedFvVector(const set<ribID> &enabled);
+
+    /*
      * get the NextHopGroupFull Object of RIBNHGEntry
      */
     NextHopGroupFull getNHG() { return m_nhg; }
@@ -796,6 +805,8 @@ private:
 class RIBNHGTable {
     /* Allow unit test fixture to access private members for testing */
     friend struct ut_fpmsyncd::FpmSyncdNhgMgr;
+    /* Allow NHGMgr to rewrite APP_DB entries during PIC backwalk */
+    friend class NHGMgr;
 
 public:
     RIBNHGTable(RedisPipeline *pipeline, const std::string &tableName, bool isStateTable);
@@ -817,6 +828,12 @@ public:
 
     // check if NHG entry exist in table by rib ID
     bool isNHGExist(ribID id);
+
+    /*
+     * get the dependents of a RIB NHG. The peer sends only the depends side,
+     * so the reverse edges are derived here as entries come and go.
+     */
+    set<ribID> getDependentsID(ribID id);
 
     // write the NHG entry to DB
     int writeToDB(RIBNHGEntry *entry);
@@ -850,6 +867,9 @@ private:
 
     map<ribID, RIBNHGEntry *> m_nhg_map;
 
+    /* reverse edges: dep RIB NHG id -> RIB NHG ids that depend on it */
+    map<ribID, set<ribID>> m_dependents_map;
+
     /* store created Sonic NHG Object */
     map<SonicNHGObjectKey, SonicNHGObjectInfo> m_created_shared_nhg_map;
 
@@ -860,6 +880,34 @@ private:
     map<sonicObjectID, ribID> m_sonic_nhg_id_2_rib_nhg_id_map;
 
     ProducerStateTable m_nexthop_groupTable;
+};
+
+/*
+ * PIC convergence state of one RIB NHG: whether every member is disabled,
+ * plus the per-member flag used while resolving the remaining paths.
+ */
+struct NodeState {
+    bool fully_disabled = false;
+    std::map<ribID, bool> enable_group;
+};
+
+struct NexthopPath {
+    ribID id;
+    std::string nexthop;
+    std::string ifname;
+};
+
+/*
+ * Resolve-via route event sent by dplane_fpm_sonic. A zero
+ * curr_resolved_nhg_id means the resolution was withdrawn (PIC fix-up);
+ * a non-zero one means it came back (recovery).
+ */
+struct ResolvedEvent {
+    std::string rnh_prefix;
+    std::string prev_resolved_prefix;
+    uint32_t prev_resolved_nhg_id = 0;
+    std::string curr_resolved_prefix;
+    uint32_t curr_resolved_nhg_id = 0;
 };
 
 class NHGMgr {
@@ -900,6 +948,9 @@ public:
     // get SonicPICContentEntry by RIB id
     SonicPICContentEntry *getSonicPICByRIBID(uint32_t id);
 
+    // handle a resolve-via route event: PIC fix-up or recovery
+    void onResolvedEvent(const ResolvedEvent &event);
+
 private:
 
     // Map zebra NHG id to received zebra_dplane_ctx + SONIC Context (a.k.a SONIC ZEBRA NHG)
@@ -922,6 +973,31 @@ private:
 
     // dump NHG Group Full for debugging
     void dumpNHGGroupFull(const NextHopGroupFull &nhg);
+
+    // --- PIC backwalk private methods ---
+    void backwalkPicCore(ribID startNhgId);
+    void recoverFrom(ribID startNhgId);
+
+    std::vector<NexthopPath> resolveLeafPaths(
+        ribID nhgId,
+        const std::map<ribID, NodeState> &modifiedSet,
+        std::set<ribID> &visited);
+
+    std::vector<NexthopPath> collectAllLeafPaths(
+        ribID nhgId,
+        std::set<ribID> &visited);
+
+    void doBackwalkFromStart(ribID startNhgId,
+                             std::map<ribID, NodeState> &modifiedSet);
+
+    void writeNhgToAppDb(RIBNHGEntry *entry, const std::vector<NexthopPath> &paths);
+
+    /*
+     * NHGs whose APP_DB entry was replaced by a PIC fix-up. Recovery only
+     * rewrites these: the rest of the dependency closure is traversed to
+     * reach them but was never changed.
+     */
+    std::set<ribID> m_fixed_up_nhgs;
 
 };
 

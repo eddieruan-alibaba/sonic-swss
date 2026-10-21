@@ -428,6 +428,8 @@ int NHGMgr::delNHGFull(uint32_t id) {
         return 0;
     }
 
+    m_fixed_up_nhgs.erase(ribId);
+
     // del the sonic PIC Content first
     if (entry->hasSonicPICObj()) {
         sonicObjectID sonicPICContentObjID = entry->getSonicPICObjID();
@@ -608,6 +610,17 @@ void RIBNHGTable::delEntry(ribID ribId) {
     RIBNHGEntry *entry = m_nhg_map[ribId];
     sonicObjectID sonicNHGID = entry->getSonicObjID();
 
+    for (ribID depId : entry->getDependsID()) {
+        auto depIt = m_dependents_map.find(depId);
+        if (depIt == m_dependents_map.end()) {
+            continue;
+        }
+        depIt->second.erase(ribId);
+        if (depIt->second.empty()) {
+            m_dependents_map.erase(depIt);
+        }
+    }
+
     if (entry->isSharedSonicNHG()){
         this->subSonicNHGObjectRef(entry->getSonicNHGObjectKey());
     }else{
@@ -641,7 +654,22 @@ int RIBNHGTable::addEntry(const NextHopGroupFull &nhg, uint8_t af) {
     }
 
     m_nhg_map.insert(std::make_pair(nhg.id, entry));
+
+    for (ribID depId : entry->getDependsID()) {
+        m_dependents_map[depId].insert(ribID(nhg.id));
+    }
     return 0;
+}
+
+/*
+ * get the dependents of a RIB NHG
+ */
+set<ribID> RIBNHGTable::getDependentsID(ribID id) {
+    auto it = m_dependents_map.find(id);
+    if (it == m_dependents_map.end()) {
+        return {};
+    }
+    return it->second;
 }
 
 /*
@@ -666,10 +694,24 @@ int RIBNHGTable::updateEntry(const NextHopGroupFull &nhg, uint8_t af, bool &upda
 
     // update rib entry
     if (updated){
+        set<ribID> oldDepends = entry->getDependsID();
         ret = entry->setEntry(nhg, af);
         if (ret != 0) {
             SWSS_LOG_ERROR("Failed to set entry for %d", nhg.id);
             return ret;
+        }
+        for (ribID depId : oldDepends) {
+            auto depIt = m_dependents_map.find(depId);
+            if (depIt == m_dependents_map.end()) {
+                continue;
+            }
+            depIt->second.erase(ribID(nhg.id));
+            if (depIt->second.empty()) {
+                m_dependents_map.erase(depIt);
+            }
+        }
+        for (ribID depId : entry->getDependsID()) {
+            m_dependents_map[depId].insert(ribID(nhg.id));
         }
     }
 
@@ -725,6 +767,7 @@ void RIBNHGTable::cleanUp() {
         delete it->second;
     }
     m_nhg_map.clear();
+    m_dependents_map.clear();
     m_created_shared_nhg_map.clear();
     m_sonic_nhg_id_2_rib_nhg_id_map.clear();
 }
@@ -941,6 +984,69 @@ int RIBNHGEntry::syncFvVector() {
     SWSS_LOG_DEBUG("NextHopGroup table set: nexthop[%s] ifname[%s] weight[%s] seg_src[%s]", m_nexthop.c_str(), m_ifName.c_str(),
                   m_weight.c_str(), m_segSrc.c_str());
     return 0;
+}
+
+/*
+ * Same fields syncFvVector() writes, restricted to the enabled members and
+ * without touching the entry's cached strings.
+ */
+vector<FieldValueTuple> RIBNHGEntry::getReducedFvVector(const set<ribID> &enabled) {
+    vector<FieldValueTuple> fvs;
+
+    if (m_resolvedGroup.empty()) {
+        if (!m_nexthop.empty()) {
+            fvs.emplace_back("nexthop", m_nexthop);
+        }
+        if (!m_ifName.empty()) {
+            fvs.emplace_back("ifname", m_ifName);
+        }
+        return fvs;
+    }
+
+    string nexthops, ifnames, weights, segSrcs;
+    for (const auto &member : m_resolvedGroup) {
+        ribID memberId(member.first.id);
+        if (!enabled.count(memberId)) {
+            continue;
+        }
+        RIBNHGEntry *entry = m_table->getEntry(memberId);
+        if (entry == nullptr) {
+            continue;
+        }
+        if (!nexthops.empty()) {
+            nexthops += NHG_DELIMITER;
+        }
+        if (!ifnames.empty()) {
+            ifnames += NHG_DELIMITER;
+        }
+        if (!weights.empty()) {
+            weights += NHG_DELIMITER;
+        }
+        if (m_sonic_obj_type == SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC_CONTEXT &&
+            !segSrcs.empty()) {
+            segSrcs += NHG_DELIMITER;
+        }
+        nexthops += entry->getNextHopStr();
+        ifnames += entry->getInterfaceNameStr();
+        weights += to_string(member.second.weight);
+        if (m_sonic_obj_type == SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC_CONTEXT) {
+            segSrcs += entry->getSegSrcStr();
+        }
+    }
+
+    if (!nexthops.empty()) {
+        fvs.emplace_back("nexthop", nexthops);
+    }
+    if (!ifnames.empty()) {
+        fvs.emplace_back("ifname", ifnames);
+    }
+    if (!weights.empty()) {
+        fvs.emplace_back("weight", weights);
+    }
+    if (!segSrcs.empty() && m_sonic_obj_type == SONIC_NHG_OBJ_TYPE_NHG_WITH_SRV6_PIC_CONTEXT) {
+        fvs.emplace_back("seg_src", segSrcs);
+    }
+    return fvs;
 }
 
 /* get fields from entry */
@@ -1594,4 +1700,251 @@ int SonicNHGObjectKey::createSonicPICContentObjectKey(RIBNHGEntry *entry, SonicN
     }
     key_out = createSonicPICContentObjectKey(obj);
     return 0;
+}
+
+// ============================================================
+// PIC convergence (resolve-via route events)
+// ============================================================
+
+/*
+ * Marks one NHG as being resolved up the stack. A diamond (two members
+ * resolving through the same child) is legal, so the marker must be released
+ * on the way back up; only a node still on the stack means a cycle.
+ */
+namespace {
+struct PicPathVisit {
+    std::set<ribID> &set;
+    ribID id;
+    PicPathVisit(std::set<ribID> &s, ribID i) : set(s), id(i) { set.insert(i); }
+    ~PicPathVisit() { set.erase(id); }
+};
+}
+
+std::vector<NexthopPath> NHGMgr::collectAllLeafPaths(ribID nhgId, std::set<ribID> &visited) {
+    if (visited.count(nhgId)) {
+        SWSS_LOG_ERROR("collectAllLeafPaths: cycle detected at RIB NHG %u", nhgId.id);
+        return {};
+    }
+    PicPathVisit guard(visited, nhgId);
+
+    RIBNHGEntry *entry = getRIBNHGEntryByRIBID(nhgId.id);
+    if (!entry) return {};
+
+    if (entry->getDependsID().empty()) {
+        return { { entry->getRIBID(), entry->getNextHopStr(), entry->getInterfaceNameStr() } };
+    }
+
+    std::vector<NexthopPath> results;
+    for (ribID dep : entry->getDependsID()) {
+        auto sub = collectAllLeafPaths(dep, visited);
+        results.insert(results.end(), sub.begin(), sub.end());
+    }
+    return results;
+}
+
+std::vector<NexthopPath> NHGMgr::resolveLeafPaths(
+    ribID nhgId,
+    const std::map<ribID, NodeState> &modifiedSet,
+    std::set<ribID> &visited)
+{
+    if (visited.count(nhgId)) {
+        SWSS_LOG_ERROR("resolveLeafPaths: cycle detected at RIB NHG %u", nhgId.id);
+        return {};
+    }
+    PicPathVisit guard(visited, nhgId);
+
+    auto ms_it = modifiedSet.find(nhgId);
+    if (ms_it == modifiedSet.end()) {
+        return collectAllLeafPaths(nhgId, visited);
+    }
+    const NodeState &myState = ms_it->second;
+
+    RIBNHGEntry *entry = getRIBNHGEntryByRIBID(nhgId.id);
+    if (!entry) return {};
+
+    if (entry->getDependsID().empty()) {
+        if (myState.fully_disabled) return {};
+        return { { entry->getRIBID(), entry->getNextHopStr(), entry->getInterfaceNameStr() } };
+    }
+
+    std::vector<NexthopPath> results;
+    for (ribID dep : entry->getDependsID()) {
+        auto en_it = myState.enable_group.find(dep);
+        if (en_it != myState.enable_group.end() && !en_it->second) {
+            continue;
+        }
+        if (modifiedSet.count(dep)) {
+            auto sub = resolveLeafPaths(dep, modifiedSet, visited);
+            results.insert(results.end(), sub.begin(), sub.end());
+        } else {
+            auto sub = collectAllLeafPaths(dep, visited);
+            results.insert(results.end(), sub.begin(), sub.end());
+        }
+    }
+    return results;
+}
+
+void NHGMgr::writeNhgToAppDb(RIBNHGEntry *entry, const std::vector<NexthopPath> &paths) {
+    if (!entry || paths.empty()) return;
+
+    // APP_DB key is the Sonic Object ID, same as RIBNHGTable::writeToDB()
+    sonicObjectID sonicId = entry->getSonicObjID();
+    if (sonicId.id == 0) {
+        SWSS_LOG_WARN("writeNhgToAppDb: entry %u has no sonic object ID, skip", entry->getRIBIDNum());
+        return;
+    }
+
+    std::set<ribID> enabled;
+    for (const auto &path : paths) {
+        enabled.insert(path.id);
+    }
+
+    std::vector<FieldValueTuple> fvs = entry->getReducedFvVector(enabled);
+    if (fvs.empty()) {
+        return;
+    }
+
+    m_rib_nhg_table->m_nexthop_groupTable.set(std::to_string(sonicId.id), fvs);
+
+    SWSS_LOG_INFO("writeNhgToAppDb: updated NHG rib_id=%u sonic_id=%u with %zu paths",
+                  entry->getRIBIDNum(), sonicId.id, paths.size());
+}
+
+/*
+ * Walk up the dependents of one NHG whose member set changed. Every dependent
+ * that references a modified NHG recomputes its enabled members: if some
+ * remain, its reduced paths are written to APP_DB and the walk continues to
+ * its own dependents; if none remain, nothing can be installed and the walk
+ * still continues, because its dependents are affected too.
+ */
+void NHGMgr::doBackwalkFromStart(ribID startNhgId,
+                                 std::map<ribID, NodeState> &modifiedSet)
+{
+    std::function<void(ribID)> walk = [&](ribID nhgId) {
+        RIBNHGEntry *entry = getRIBNHGEntryByRIBID(nhgId.id);
+        if (!entry) return;
+
+        for (ribID dep_id : m_rib_nhg_table->getDependentsID(nhgId)) {
+            RIBNHGEntry *dep_entry = getRIBNHGEntryByRIBID(dep_id.id);
+            if (!dep_entry) {
+                SWSS_LOG_WARN("PIC backwalk: dependent %u lookup failed", dep_id.id);
+                continue;
+            }
+
+            bool hit_intersect = false;
+            for (ribID d : dep_entry->getDependsID()) {
+                if (modifiedSet.count(d)) { hit_intersect = true; break; }
+            }
+            if (!hit_intersect) {
+                continue;
+            }
+
+            NodeState ns;
+            for (ribID d : dep_entry->getDependsID()) {
+                bool disabled = modifiedSet.count(d) &&
+                                modifiedSet.at(d).fully_disabled;
+                ns.enable_group[d] = !disabled;
+            }
+            bool all_disabled = true;
+            for (auto &kv : ns.enable_group) {
+                if (kv.second) { all_disabled = false; break; }
+            }
+            ns.fully_disabled = all_disabled;
+            modifiedSet[dep_id] = ns;
+
+            if (!ns.fully_disabled) {
+                std::set<ribID> visited;
+                auto paths = resolveLeafPaths(dep_id, modifiedSet, visited);
+                if (!paths.empty()) {
+                    writeNhgToAppDb(dep_entry, paths);
+                    m_fixed_up_nhgs.insert(dep_id);
+                }
+            }
+
+            walk(dep_id);
+        }
+    };
+    walk(startNhgId);
+}
+
+/*
+ * The start object is the dplane NHG that resolved through the withdrawn
+ * route: every path it carries is gone, so it seeds the walk as fully
+ * disabled.
+ */
+void NHGMgr::backwalkPicCore(ribID startNhgId) {
+    std::map<ribID, NodeState> modifiedSet;
+
+    RIBNHGEntry *start = getRIBNHGEntryByRIBID(startNhgId.id);
+    if (!start) {
+        SWSS_LOG_WARN("PIC core: start %u lookup failed", startNhgId.id);
+        return;
+    }
+    if (m_rib_nhg_table->getDependentsID(startNhgId).empty()) {
+        SWSS_LOG_DEBUG("PIC core: start %u has no dependents; nothing to do",
+                       startNhgId.id);
+        return;
+    }
+
+    NodeState ns;
+    ns.fully_disabled = true;
+    for (ribID d : start->getDependsID()) {
+        ns.enable_group[d] = false;
+    }
+    modifiedSet[startNhgId] = ns;
+
+    doBackwalkFromStart(startNhgId, modifiedSet);
+}
+
+/*
+ * Undo the fix-ups of one recovered resolution: every NHG above the start
+ * object resolves through it, so re-resolve them from the current RIB graph
+ * and write the full paths back.
+ */
+void NHGMgr::recoverFrom(ribID startNhgId) {
+    std::set<ribID> visited;
+
+    std::function<void(ribID)> walk = [&](ribID nhgId) {
+        RIBNHGEntry *entry = getRIBNHGEntryByRIBID(nhgId.id);
+        if (!entry) return;
+
+        for (ribID depId : m_rib_nhg_table->getDependentsID(nhgId)) {
+            if (!visited.insert(depId).second) continue;
+            RIBNHGEntry *depEntry = getRIBNHGEntryByRIBID(depId.id);
+            if (!depEntry) continue;
+
+            if (m_fixed_up_nhgs.erase(depId) > 0) {
+                std::set<ribID> pathVisited;
+                auto paths = collectAllLeafPaths(depId, pathVisited);
+                if (!paths.empty()) {
+                    writeNhgToAppDb(depEntry, paths);
+                }
+            }
+            walk(depId);
+        }
+    };
+    walk(startNhgId);
+}
+
+void NHGMgr::onResolvedEvent(const ResolvedEvent &event) {
+    SWSS_LOG_INFO("onResolvedEvent: rnh=%s prev_nhg=%u curr_nhg=%u",
+                  event.rnh_prefix.c_str(),
+                  event.prev_resolved_nhg_id,
+                  event.curr_resolved_nhg_id);
+
+    if (event.prev_resolved_nhg_id == 0) {
+        return;
+    }
+
+    if (event.curr_resolved_nhg_id != 0) {
+        // Resolution is back: restore the full paths of every fixed-up NHG.
+        if (m_fixed_up_nhgs.empty()) {
+            return;
+        }
+        recoverFrom(ribID(event.prev_resolved_nhg_id));
+        return;
+    }
+
+    // Resolution withdrawn: fix up every NHG that resolved through it.
+    backwalkPicCore(ribID(event.prev_resolved_nhg_id));
 }

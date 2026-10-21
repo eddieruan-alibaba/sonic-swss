@@ -2380,6 +2380,7 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
         && (h->nlmsg_type != RTM_DELPICCONTEXT)
         && (h->nlmsg_type != RTM_NEWNHGFIB)
         && (h->nlmsg_type != RTM_DELNHGFIB)
+        && (h->nlmsg_type != RTM_NEWRESOLVEDEVENT)
         && (h->nlmsg_type != RTM_NEWSRV6VPNROUTE)
         && (h->nlmsg_type != RTM_DELSRV6VPNROUTE)
         && (h->nlmsg_type != RTM_NEWSRV6LOCALSID)
@@ -2401,6 +2402,9 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
     case RTM_NEWNHGFIB:
     case RTM_DELNHGFIB:
         hdr_len = sizeof(struct nhmsg);
+        break;
+    case RTM_NEWRESOLVEDEVENT:
+        hdr_len = sizeof(struct rtmsg);
         break;
     case RTM_NEWTFILTER:
     case RTM_DELTFILTER:
@@ -2437,6 +2441,9 @@ void RouteSync::onMsgRaw(struct nlmsghdr *h)
     case RTM_NEWNHGFIB:
     case RTM_DELNHGFIB:
         onNextHopGroupFullMsg(h, len);
+        return;
+    case RTM_NEWRESOLVEDEVENT:
+        onResolvedEventMsg(h, len);
         return;
     case RTM_NEWNEXTHOP:
     case RTM_DELNEXTHOP:
@@ -3265,6 +3272,52 @@ void RouteSync::onNextHopGroupFullMsg(struct nlmsghdr *h, int len)
         }
         m_nhgFullStateTable.del(to_string(id));
         m_app_state_pipeline->flush();
+    }
+}
+
+/*
+ * Handle a resolve-via route event from dplane_fpm_sonic.
+ *
+ * A zero curr_resolved_nhg_id means the resolution was withdrawn and the
+ * affected NHGs must be fixed up (PIC convergence); a non-zero one means it
+ * came back and the earlier fix-up is undone.
+ */
+void RouteSync::onResolvedEventMsg(struct nlmsghdr *h, int len)
+{
+    struct rtattr *tb[RTA_MAX + 1] = {};
+    struct rtmsg *rtm = (struct rtmsg *)NLMSG_DATA(h);
+
+    netlink_parse_rtattr(tb, RTA_MAX, RTM_RTA(rtm), len);
+
+    if (!tb[NHA_JSON_STR] || RTA_PAYLOAD(tb[NHA_JSON_STR]) == 0)
+    {
+        SWSS_LOG_WARN("Resolved event without JSON received");
+        return;
+    }
+
+    const char *jsonData = (const char *)RTA_DATA(tb[NHA_JSON_STR]);
+    size_t jsonLength = RTA_PAYLOAD(tb[NHA_JSON_STR]);
+    if (jsonData[jsonLength - 1] == '\0')
+    {
+        --jsonLength;
+    }
+
+    try
+    {
+        auto json = nlohmann::json::parse(string(jsonData, jsonLength));
+        ResolvedEvent event;
+
+        event.rnh_prefix = json.value("rnh_prefix", string());
+        event.prev_resolved_prefix = json.value("prev_resolved_prefix", string());
+        event.prev_resolved_nhg_id = json.value("prev_resolved_nhg_id", 0u);
+        event.curr_resolved_prefix = json.value("curr_resolved_prefix", string());
+        event.curr_resolved_nhg_id = json.value("curr_resolved_nhg_id", 0u);
+
+        m_rib_fib_nhg_mgr.onResolvedEvent(event);
+    }
+    catch (const std::exception &error)
+    {
+        SWSS_LOG_ERROR("Failed to decode resolved event JSON: %s", error.what());
     }
 }
 

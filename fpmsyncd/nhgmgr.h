@@ -199,6 +199,26 @@ public:
      */
     bool isInUsed(sonicObjectID id);
 
+    /*
+     * Get the next candidate ID counter value.
+     * Used by warm restart to persist and restore allocator state.
+     */
+    uint32_t getNextID() const { return g_id; }
+
+    /*
+     * Set the next candidate ID counter value.
+     * Used by warm restart to restore allocator state so that
+     * post-restart allocation resumes from the saved counter.
+     */
+    void setNextID(uint32_t nextId) { g_id = nextId; }
+
+    /*
+     * Mark a specific ID as used in the allocator.
+     * Used by warm restart to reserve IDs that were allocated
+     * before restart so that new allocations do not collide.
+     */
+    void markIDUsed(sonicObjectID id) { m_id_map[id] = true; }
+
 private:
     map<sonicObjectID, bool> m_id_map;
     uint32_t g_id;
@@ -259,6 +279,55 @@ private:
      * get Sonic ID Allocator for specific type
      */
     SonicIDAllocator *getAllocator(sonicNhgObjType type);
+
+public:
+    /*
+     * Get the next candidate ID from the NHG allocator.
+     * Used by warm restart to persist allocator state.
+     */
+    uint32_t getNextNhgID() const {
+        return m_nhg_id_allocator ? m_nhg_id_allocator->getNextID() : 1;
+    }
+
+    /*
+     * Get the next candidate ID from the PIC allocator.
+     * Used by warm restart to persist allocator state.
+     */
+    uint32_t getNextPicID() const {
+        return m_pic_id_allocator ? m_pic_id_allocator->getNextID() : 1;
+    }
+
+    /*
+     * Set the next candidate ID on the NHG allocator.
+     * Used by warm restart to restore allocator state.
+     */
+    void setNextNhgID(uint32_t nextId) {
+        if (m_nhg_id_allocator) m_nhg_id_allocator->setNextID(nextId);
+    }
+
+    /*
+     * Set the next candidate ID on the PIC allocator.
+     * Used by warm restart to restore allocator state.
+     */
+    void setNextPicID(uint32_t nextId) {
+        if (m_pic_id_allocator) m_pic_id_allocator->setNextID(nextId);
+    }
+
+    /*
+     * Mark a NHG ID as used in the NHG allocator.
+     * Used by warm restart to reserve previously allocated IDs.
+     */
+    void markNhgIDUsed(sonicObjectID id) {
+        if (m_nhg_id_allocator) m_nhg_id_allocator->markIDUsed(id);
+    }
+
+    /*
+     * Mark a PIC ID as used in the PIC allocator.
+     * Used by warm restart to reserve previously allocated IDs.
+     */
+    void markPicIDUsed(sonicObjectID id) {
+        if (m_pic_id_allocator) m_pic_id_allocator->markIDUsed(id);
+    }
 };
 
 /* Sonic PIC entry */
@@ -861,6 +930,8 @@ public:
         m_sonic_id_manager = sonic_id_manager;
     }
 
+    const std::map<ribID, RIBNHGEntry*>& getNhgMap() const { return m_nhg_map; }
+
 private:
 
     SonicIDMgr *m_sonic_id_manager = nullptr;
@@ -950,6 +1021,14 @@ public:
 
     // handle a resolve-via route event: PIC fix-up or recovery
     void onResolvedEvent(const ResolvedEvent &event);
+
+    // Warm restart
+    int addNHGFullWithSonicId(const fib::NextHopGroupFull &nhg, uint8_t af,
+                               sonicObjectID reuseNhgId, sonicObjectID reusePicId);
+
+    /* Accessors for NhgWarmRestartAssist (data path only) */
+    RIBNHGTable *getRIBNHGTable() { return m_rib_nhg_table; }
+    SonicIDMgr &getSonicIDMgr() { return m_sonic_id_manager; }
 
 private:
 

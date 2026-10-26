@@ -1948,3 +1948,82 @@ void NHGMgr::onResolvedEvent(const ResolvedEvent &event) {
     // Resolution withdrawn: fix up every NHG that resolved through it.
     backwalkPicCore(ribID(event.prev_resolved_nhg_id));
 }
+
+
+/*
+ * Add a NextHopGroupFull entry and reuse a previously allocated Sonic NHG ID
+ * instead of allocating a new one. This is used during warm restart reconciliation
+ * when a matching APP_DB entry already exists -- reusing the same Sonic ID avoids
+ * an unnecessary delete+recreate cycle that would disrupt orchagent.
+ *
+ * The flow is identical to addNewNHGFull() except:
+ *   - The Sonic NHG ID is set from reuseNhgId rather than allocated
+ *   - writeToDB() is NOT called since the APP_DB entry already has the correct FVs
+ *   - The shared NHG map and sonic-id-to-rib-id map are maintained as normal
+ *
+ * @param nhg          NextHopGroupFull to add
+ * @param af           Address family
+ * @param reuseNhgId   Sonic NHG object ID to reuse (from APP_DB match)
+ * @param reusePicId   Sonic PIC object ID to reuse (0 if not applicable)
+ * @return 0 on success, non-zero on error
+ */
+int NHGMgr::addNHGFullWithSonicId(const fib::NextHopGroupFull &nhg, uint8_t af,
+                                    sonicObjectID reuseNhgId, sonicObjectID reusePicId)
+{
+    ribID id = ribID(nhg.id);
+
+    /* Step 1: Add entry to RIB table (same as addNewNHGFull) */
+    int ret = m_rib_nhg_table->addEntry(nhg, af);
+    if (ret != 0) {
+        SWSS_LOG_ERROR("NHG warm restart: failed to add RIB entry for %u", nhg.id);
+        return ret;
+    }
+
+    RIBNHGEntry *entry = m_rib_nhg_table->getEntry(id);
+    if (entry == nullptr) {
+        SWSS_LOG_ERROR("NHG warm restart: failed to get RIB entry after add for %u", nhg.id);
+        return -1;
+    }
+
+    /* Step 2: Set reused sonic ID (skip allocateID and writeToDB) */
+    if (reuseNhgId.id != 0 && entry->needCreateSonicObject()) {
+        entry->setSonicNHGObjId(reuseNhgId);
+        /* Do NOT call writeToDB -- APP_DB entry already exists with same FV content */
+
+        /* Maintain shared NHG map for reference counting */
+        if (entry->isSharedSonicNHG()) {
+            SonicNHGObjectKey key = entry->getSonicNHGObjectKey();
+            int existingId = m_rib_nhg_table->getCreatedSharedNHGObjectID(key);
+            if (existingId > 0) {
+                m_rib_nhg_table->addSonicNHGObjectRef(key);
+            } else {
+                m_rib_nhg_table->insertCreatedSharedNHGObject(key, reuseNhgId);
+            }
+        } else {
+            m_rib_nhg_table->insertCreatedNhgObject(reuseNhgId, id);
+        }
+
+        SWSS_LOG_NOTICE("NHG warm restart: reused sonic NHG id %u for rib_id %u",
+                         reuseNhgId.id, nhg.id);
+    }
+
+    /* Step 3: Handle PIC context */
+    if (entry->hasSonicPICObj()) {
+        if (reusePicId.id != 0) {
+            entry->setSonicPICObjId(reusePicId);
+            /* Do NOT write PIC_CONTEXT_TABLE -- already exists */
+            SWSS_LOG_NOTICE("NHG warm restart: reused sonic PIC id %u for rib_id %u",
+                             reusePicId.id, nhg.id);
+        } else {
+            ret = createSonicPICObject(entry);
+            if (ret != 0) {
+                SWSS_LOG_ERROR("NHG warm restart: failed to create PIC object for rib_id %u",
+                               nhg.id);
+                m_rib_nhg_table->delEntry(nhg.id);
+                return ret;
+            }
+        }
+    }
+
+    return 0;
+}

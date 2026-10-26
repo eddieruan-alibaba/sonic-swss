@@ -4,6 +4,7 @@
 #include "logger.h"
 #include "select.h"
 #include "netmsg.h"
+#include "netdispatcher.h"
 #include "ipprefix.h"
 #include "dbconnector.h"
 #include "lib/orch_zmq_config.h"
@@ -190,7 +191,8 @@ RouteSync::RouteSync(RedisPipeline *pipeline, RedisPipeline *app_state_pipeline)
     m_nl_sock(NULL), m_link_cache(NULL),
     m_rib_fib_nhg_mgr(pipeline, APP_NEXTHOP_GROUP_TABLE_NAME, APP_PIC_CONTEXT_TABLE_NAME, true),
     m_app_state_pipeline(app_state_pipeline),
-    m_nhgFullStateTable(app_state_pipeline, "NHG_FULL_STATE_TABLE", true)
+    m_nhgFullStateTable(app_state_pipeline, "NHG_FULL_STATE_TABLE", true),
+    m_nhgWarmAssist(pipeline, &m_rib_fib_nhg_mgr)
 {
     m_nl_sock = nl_socket_alloc();
     nl_connect(m_nl_sock, NETLINK_ROUTE);
@@ -3982,6 +3984,18 @@ void RouteSync::onWarmStartEnd(DBConnector& applStateDb)
 {
     SWSS_LOG_ENTER();
 
+    /* === NHG warm restart reconcile (must happen before route reconcile) === */
+    if (m_nhgWarmAssist.inProgress())
+    {
+        SWSS_LOG_NOTICE("NHG warm restart: starting reconcile in onWarmStartEnd");
+        m_nhgWarmAssist.reconcileNHGs();
+
+        m_nhgWarmAssist.replayBufferedRoutes(*this);
+        m_nhgWarmAssist.replayResolvedEvents(*this);
+        SWSS_LOG_NOTICE("NHG warm restart: reconcile complete");
+    }
+    /* === End NHG warm restart reconcile === */
+
     if (isSuppressionEnabled())
     {
         markRoutesOffloaded(applStateDb);
@@ -4228,5 +4242,51 @@ void RouteSync::getPicContextGroupFields(const NextHopGroup& nhg, struct NextHop
             nhField.seg_srcs += nhgr.seg_src.empty() ? ("") : nhgr.seg_src;
             ++i;
         }
+    }
+}
+
+void RouteSync::dispatchBufferedRouteMsg(struct nlmsghdr *nlh)
+{
+    if (nlh->nlmsg_type == RTM_NEWSRV6VPNROUTE ||
+        nlh->nlmsg_type == RTM_DELSRV6VPNROUTE ||
+        nlh->nlmsg_type == RTM_NEWRESOLVEDEVENT)
+    {
+        /* SRv6 VPN routes and resolve events always go through raw processing */
+        onMsgRaw(nlh);
+    }
+    else if (nlh->nlmsg_type == RTM_NEWROUTE ||
+             nlh->nlmsg_type == RTM_DELROUTE)
+    {
+        /*
+         * For RTM_NEWROUTE / RTM_DELROUTE we replicate the same dispatch
+         * logic used by FpmLink::processFpmMessage():
+         *   - routes with encapsulation -> onMsgRaw  (EVPN / SRv6 steer)
+         *   - plain routes              -> NetDispatcher -> onMsg -> onRouteMsg
+         */
+        uint16_t encap_type = getEncapType(nlh);
+        if (encap_type > 0)
+        {
+            onMsgRaw(nlh);
+        }
+        else
+        {
+            nl_msg *msg = nlmsg_convert(nlh);
+            if (msg)
+            {
+                nlmsg_set_proto(msg, NETLINK_ROUTE);
+                NetDispatcher::getInstance().onNetlinkMessage(msg);
+                nlmsg_free(msg);
+            }
+            else
+            {
+                SWSS_LOG_ERROR("NHG warm restart: failed to convert route nlmsg, type=%d",
+                               nlh->nlmsg_type);
+            }
+        }
+    }
+    else
+    {
+        SWSS_LOG_WARN("NHG warm restart: unexpected buffered message type=%d, skipping",
+                      nlh->nlmsg_type);
     }
 }

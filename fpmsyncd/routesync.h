@@ -9,6 +9,7 @@
 #include "linkcache.h"
 #include "fpminterface.h"
 #include "warmRestartHelper.h"
+#include "nhgWarmRestartAssist.h"
 #include <string.h>
 #include <bits/stdc++.h>
 #include <linux/version.h>
@@ -277,6 +278,12 @@ public:
         return m_warmStartHelper;
     }
 
+    void dispatchBufferedRouteMsg(struct nlmsghdr *nlh);
+    NHGMgr& getNHGMgr() { return m_rib_fib_nhg_mgr; }
+    NhgWarmRestartAssist& getNhgWarmAssist() { return m_nhgWarmAssist; }
+    swss::Table& getNhgFullStateTable() { return m_nhgFullStateTable; }
+    bool getNhgFibEnabled() const { return m_nhgFibEnabled; }
+
 private:
     /* ZMQ client */
     shared_ptr<ZmqClient> m_zmqClient;
@@ -313,6 +320,9 @@ private:
     /* APPL_STATE_DB pipeline and NHG Full debug state table */
     RedisPipeline *m_app_state_pipeline;
     swss::Table m_nhgFullStateTable;
+
+    /* NHG warm restart assist (depends on m_rib_fib_nhg_mgr, must be declared after it) */
+    NhgWarmRestartAssist m_nhgWarmAssist;
 
     bool                m_isSuppressionEnabled{false};
     bool                m_nhgFibEnabled{false};

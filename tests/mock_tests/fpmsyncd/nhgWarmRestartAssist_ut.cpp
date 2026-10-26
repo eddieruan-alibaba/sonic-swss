@@ -1,6 +1,8 @@
 #include "ut_helpers_fpmsyncd.h"
 #include "gtest/gtest.h"
 #include "mock_table.h"
+#include <algorithm>
+#include <iostream>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include <linux/nexthop.h>
@@ -35,6 +37,57 @@ using namespace testing;
 
 namespace ut_fpmsyncd
 {
+    /*
+     * Diagnostics for the save/load/reconcile path. These are emitted to
+     * stderr (captured in tests_fpmsyncd.log) so that a mismatch between the
+     * pre-restart APP_DB FVs and the recomputed FVs identifies the differing
+     * field without guessing.
+     */
+    namespace
+    {
+        std::string joinFvs(const std::vector<swss::FieldValueTuple> &fvs)
+        {
+            std::vector<swss::FieldValueTuple> sorted(fvs);
+            std::sort(sorted.begin(), sorted.end());
+            std::string out;
+            for (const auto &fv : sorted)
+            {
+                if (!out.empty())
+                    out += ", ";
+                out += fvField(fv) + "=" + fvValue(fv);
+            }
+            return out.empty() ? "<empty>" : out;
+        }
+
+        void dumpRibEntry(const std::string &stage, RIBNHGEntry *entry)
+        {
+            if (entry == nullptr)
+            {
+                std::cerr << "[nhg-warm] " << stage << ": <no RIB entry>" << std::endl;
+                return;
+            }
+            NextHopGroupFull nhg = entry->getNHG();
+            std::cerr << "[nhg-warm] " << stage
+                      << ": rib_id=" << entry->getRIBIDNum()
+                      << " sonic_id=" << entry->getSonicObjIDNum()
+                      << " type=" << static_cast<int>(nhg.type)
+                      << " ifindex=" << nhg.ifindex
+                      << " json_ifname='" << nhg.ifname << "'"
+                      << " cached_ifname='" << entry->getInterfaceNameStr() << "'"
+                      << " fvs=[" << joinFvs(entry->getFvVector()) << "]"
+                      << std::endl;
+        }
+
+        void dumpAppDbEntry(const std::string &stage, swss::Table &table, const std::string &key)
+        {
+            std::vector<swss::FieldValueTuple> fvs;
+            bool found = table.get(key, fvs);
+            std::cerr << "[nhg-warm] " << stage << ": key=" << key
+                      << (found ? " present" : " missing")
+                      << " fvs=[" << joinFvs(fvs) << "]" << std::endl;
+        }
+    }
+
     struct FpmSyncdNhgWarmAssist : public ::testing::Test
     {
         std::shared_ptr<swss::DBConnector> m_app_db;
@@ -417,6 +470,14 @@ namespace ut_fpmsyncd
         m_nextHopTable->get(std::to_string(originalSonicId), originalAppFvs);
         EXPECT_FALSE(originalAppFvs.empty());
 
+        /* Diagnostics: record cold ID assignment and the fields that are compared later */
+        std::cerr << "[nhg-warm] == cold: allocator next_nhg_id="
+                  << m_nhgmgr->getSonicIDMgr().getNextNhgID() << std::endl;
+        dumpRibEntry("cold rib 100", getRibNhgTable()->getEntry(ribID(100)));
+        dumpRibEntry("cold rib 200", getRibNhgTable()->getEntry(ribID(200)));
+        dumpRibEntry("cold rib 300", originalEntry);
+        dumpAppDbEntry("cold APP_DB", *m_nextHopTable, std::to_string(originalSonicId));
+
         // === Phase B: Graceful shutdown -- save state ===
         m_assist->saveState(*m_stateTable);
 
@@ -436,6 +497,24 @@ namespace ut_fpmsyncd
         m_assist->loadState(*m_stateTable, *m_nextHopTable);
         EXPECT_EQ(getWrState(), NhgWarmRestartAssist::NHG_WR_RESTORED);
 
+        /* Diagnostics: what the restarted process restored before replay */
+        std::cerr << "[nhg-warm] == restored: allocator next_nhg_id="
+                  << m_nhgmgr->getSonicIDMgr().getNextNhgID()
+                  << " saved_infos=" << getSavedNhgInfos().size()
+                  << " app_db_entries=" << getAppDbNhgFvs().size() << std::endl;
+        for (const auto &kv : getSavedNhgInfos())
+        {
+            std::cerr << "[nhg-warm] restored saved_info: sonic_id=" << kv.second.sonicId.id
+                      << " af=" << static_cast<int>(kv.second.af) << std::endl;
+        }
+        for (const auto &kv : getAppDbNhgFvs())
+        {
+            std::cerr << "[nhg-warm] restored APP_DB snapshot: key=" << kv.first
+                      << " sonic_id=" << kv.second.sonicId.id
+                      << " matched=" << (kv.second.matched ? "true" : "false")
+                      << " fvs=[" << joinFvs(kv.second.fvVector) << "]" << std::endl;
+        }
+
         // === Phase E: Reconcile ===
         /* Build raw messages (simulating zebra re-sending the same NHGs) */
         auto rawMsg1 = buildNHGRawMsg(nhg1, RTM_NEWNHGFIB, AF_INET);
@@ -450,6 +529,10 @@ namespace ut_fpmsyncd
         EXPECT_NE(getRibNhgTable()->getEntry(ribID(100)), nullptr);
         EXPECT_NE(getRibNhgTable()->getEntry(ribID(200)), nullptr);
 
+        /* Diagnostics: member NHGs after the replayed JSON was parsed and resolved */
+        dumpRibEntry("replayed rib 100", getRibNhgTable()->getEntry(ribID(100)));
+        dumpRibEntry("replayed rib 200", getRibNhgTable()->getEntry(ribID(200)));
+
         /* Phase 2: multi-hop with FV matching */
         m_assist->reconcileNHGsWithSonicObj();
 
@@ -460,6 +543,11 @@ namespace ut_fpmsyncd
 
         EXPECT_EQ(reconciledEntry->getSonicObjIDNum(), originalSonicId);
 
+        /* Diagnostic assertion: on ID mismatch, show exactly which FV differs
+         * between the pre-restart APP_DB entry and the recomputed entry. */
+        EXPECT_EQ(joinFvs(reconciledEntry->getFvVector()), joinFvs(originalAppFvs))
+            << "recomputed NHG FVs differ from the pre-restart APP_DB FVs";
+
         /* FSM should be RECONCILED */
         EXPECT_EQ(getWrState(), NhgWarmRestartAssist::NHG_WR_RECONCILED);
 
@@ -467,6 +555,22 @@ namespace ut_fpmsyncd
         std::vector<swss::FieldValueTuple> finalAppFvs;
         m_nextHopTable->get(std::to_string(originalSonicId), finalAppFvs);
         EXPECT_FALSE(finalAppFvs.empty());
+
+        /* Diagnostics: final ID assignment and APP_DB contents */
+        std::cerr << "[nhg-warm] == reconciled: allocator next_nhg_id="
+                  << m_nhgmgr->getSonicIDMgr().getNextNhgID() << std::endl;
+        dumpRibEntry("reconciled rib 300", reconciledEntry);
+        dumpAppDbEntry("final APP_DB (original id)", *m_nextHopTable, std::to_string(originalSonicId));
+        dumpAppDbEntry("final APP_DB (reconciled id)", *m_nextHopTable,
+                       std::to_string(reconciledEntry->getSonicObjIDNum()));
+
+        std::vector<std::string> appDbKeys;
+        m_nextHopTable->getKeys(appDbKeys);
+        std::cerr << "[nhg-warm] final APP_DB keys=" << appDbKeys.size() << std::endl;
+        for (const auto &key : appDbKeys)
+        {
+            dumpAppDbEntry("final APP_DB entry", *m_nextHopTable, key);
+        }
     }
 
     // --- message interception ---

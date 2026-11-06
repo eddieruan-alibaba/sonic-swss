@@ -1154,6 +1154,22 @@ RouteTableFieldValueTupleWrapper::fieldValueTupleVector() {
     if (nbZmqEnabled || includeEmptyFields || seg_src != string()) {
         fvVector.push_back(FieldValueTuple("seg_src", seg_src.c_str()));
     }
+    /*
+     * A route is represented either by an NHG id or by a nexthop list.
+     * ProducerStateTable::set() only writes the fields it is given, so when
+     * a re-install flips between the two representations the field of the
+     * other kind stays behind and RouteOrch drops the route as "has both
+     * nexthop_group and ips/aliases". Clear the unused representation with
+     * empty values, which RouteOrch ignores.
+     */
+    if (!nbZmqEnabled && !includeEmptyFields) {
+        if (!nexthop_group.empty()) {
+            fvVector.push_back(FieldValueTuple("nexthop", ""));
+            fvVector.push_back(FieldValueTuple("ifname", ""));
+        } else {
+            fvVector.push_back(FieldValueTuple("nexthop_group", ""));
+        }
+    }
     // Return value optimization will avoid copy of the following vector
     return fvVector;
 }

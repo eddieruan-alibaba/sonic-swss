@@ -1301,7 +1301,7 @@ TEST_F(FpmSyncdResponseTest, TestRouteMsgWithNHG)
 
         vector<FieldValueTuple> fvs;
         EXPECT_TRUE(route_table.get(test_destipprefix, fvs));
-        EXPECT_EQ(fvs.size(), 3);
+        EXPECT_EQ(fvs.size(), 4);
         for (const auto& fv : fvs) {
             if (fvField(fv) == "nexthop") {
                 EXPECT_EQ(fvValue(fv), test_gateway);
@@ -1309,6 +1309,8 @@ TEST_F(FpmSyncdResponseTest, TestRouteMsgWithNHG)
                 EXPECT_EQ(fvValue(fv), "Ethernet1");
             } else if (fvField(fv) == "protocol") {
                 EXPECT_EQ(fvValue(fv), "static");
+            } else if (fvField(fv) == "nexthop_group") {
+                EXPECT_EQ(fvValue(fv), "");
             }
         }
     }
@@ -4817,8 +4819,9 @@ TEST_F(FpmSyncdResponseTest, TestRouteMsgWithZmqDisabled_OnlyNonEmptyFields)
     vector<FieldValueTuple> fvs;
     EXPECT_TRUE(route_table.get(test_destipprefix, fvs));
 
-    // With ZMQ disabled, only non-empty fields should be present
-    EXPECT_EQ(fvs.size(), 3);  // protocol, nexthop, ifname
+    // With ZMQ disabled, only the fields needed by the route are present,
+    // plus the unused representation written empty to clear a stale one
+    EXPECT_EQ(fvs.size(), 4);  // protocol, nexthop, ifname, nexthop_group
 
     // Build a map for easier verification
     std::map<std::string, std::string> fieldMap;
@@ -4831,8 +4834,12 @@ TEST_F(FpmSyncdResponseTest, TestRouteMsgWithZmqDisabled_OnlyNonEmptyFields)
     EXPECT_EQ(fieldMap["nexthop"], test_gateway);
     EXPECT_EQ(fieldMap["ifname"], "Ethernet2");
 
-    // Verify empty fields are NOT present
-    EXPECT_EQ(fieldMap.count("nexthop_group"), 0);
+    // The unused representation is written empty so that a switch from an
+    // NHG id cannot leave the old field behind
+    EXPECT_EQ(fieldMap.count("nexthop_group"), 1);
+    EXPECT_EQ(fieldMap["nexthop_group"], "");
+
+    // Verify the remaining empty fields are NOT present
     EXPECT_EQ(fieldMap.count("mpls_nh"), 0);
     EXPECT_EQ(fieldMap.count("weight"), 0);
     EXPECT_EQ(fieldMap.count("vni_label"), 0);
